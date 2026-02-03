@@ -1,202 +1,377 @@
-<!-- game/index.html -->
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Танковая миссия — игра</title>
-<style>
-html,body{margin:0;height:100%;background:#0b1220;overflow:hidden;font-family:system-ui}
-#wrap{position:fixed;inset:0;display:flex;flex-direction:column}
-#hud{height:72px;display:flex;align-items:center;gap:10px;padding:10px;background:rgba(10,18,35,.7)}
-#bar{display:flex;gap:8px;flex:1}
-.slot{width:46px;height:46px;border-radius:12px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center}
-.slot img{max-width:80%;max-height:80%}
-#stage{flex:1;position:relative}
-canvas{position:absolute;inset:0;width:100%;height:100%}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Танковая миссия — игра</title>
+  <style>
+    html,body{margin:0;height:100%;background:#0b1220;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    #wrap{position:fixed;inset:0;display:flex;flex-direction:column}
+    #hud{
+      height:74px; flex:0 0 74px;
+      display:flex; align-items:center; gap:10px;
+      padding:10px 12px;
+      background:rgba(10,18,35,.72);
+      border-bottom:1px solid rgba(255,255,255,.08);
+      backdrop-filter: blur(8px);
+      box-sizing:border-box;
+    }
+    #hud .title{color:#cfe6ff;font-weight:700;font-size:14px;opacity:.9}
+    #bar{display:flex;align-items:center;gap:8px;flex:1;overflow:auto;padding-bottom:2px}
+    .slot{
+      width:48px;height:48px;border-radius:12px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.08);
+      display:flex;align-items:center;justify-content:center;
+      flex:0 0 auto; position:relative;
+    }
+    .slot img{max-width:82%;max-height:82%}
+    #hint{color:rgba(210,230,255,.75);font-size:12px;white-space:nowrap}
+    #stage{position:relative;flex:1}
+    canvas{position:absolute;inset:0;width:100%;height:100%}
+    #toast{
+      position:absolute;left:12px;bottom:12px;
+      padding:10px 12px;border-radius:12px;
+      background:rgba(0,0,0,.35);color:#eaf3ff;font-size:12px;
+      border:1px solid rgba(255,255,255,.12);
+      backdrop-filter: blur(8px);
+      max-width:70%;
+      display:none;
+    }
+  </style>
 </head>
 <body>
-
-<div id="wrap">
-  <div id="hud">
-    <b style="color:#cfe6ff">Награды:</b>
-    <div id="bar"></div>
+  <div id="wrap">
+    <div id="hud">
+      <div class="title">Награды:</div>
+      <div id="bar" aria-label="панель предметов"></div>
+      <div id="hint">WASD/стрелки — движение • Пробел — выстрел</div>
+    </div>
+    <div id="stage">
+      <canvas id="c"></canvas>
+      <div id="toast"></div>
+    </div>
   </div>
-  <div id="stage">
-    <canvas id="c"></canvas>
-  </div>
-</div>
 
 <script>
 (() => {
-const DEFAULT = {
-  boxCount:7,
-  difficulty:"normal",
-  tankScale:1,
-  boxScale:1,
-  tankSpeed:2.2,
-  bulletSpeed:6.5,
-  tankUrl:"https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif",
-  boxUrl:"https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
-  fieldUrl:"",
-  items:[]
-};
+  const DEFAULT_CONFIG = {
+    boxCount: 7,                 // 1..15
+    difficulty: "normal",        // easy | normal | hard
+    randomBoxes: true,
+    tankSpeed: 2.2,
+    bulletSpeed: 6.5,
 
-let CFG={...DEFAULT};
+    // ✅ ВОТ ОНО: масштаб до 5
+    tankScale: 1.0,              // 0.5..5.0
+    boxScale: 1.0,               // 0.5..5.0
 
-const canvas=document.getElementById("c");
-const ctx=canvas.getContext("2d");
-const bar=document.getElementById("bar");
+    tankUrl: "https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif",
+    boxUrl:  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
+    fieldUrl: "",
+    items: [] // [{label:"", img:"url/data:"}, ...]
+  };
 
-let W,H,DPR=1;
-function resize(){
-  DPR=Math.min(2,window.devicePixelRatio||1);
-  W=canvas.width=canvas.clientWidth*DPR;
-  H=canvas.height=canvas.clientHeight*DPR;
-}
-new ResizeObserver(resize).observe(canvas);
+  let CFG = structuredClone(DEFAULT_CONFIG);
 
-function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const bar = document.getElementById("bar");
+  const toast = document.getElementById("toast");
 
-let IMG_TANK,IMG_BOX,IMG_FIELD;
-const loadImg=u=>new Promise(r=>{if(!u)return r(null);const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src=u});
-
-let tank={x:0,y:0,w:0,h:0,dx:1,dy:0};
-let bullets=[];
-let boxes=[];
-let reward=0;
-const keys=new Set();
-
-function buildSlots(){
-  bar.innerHTML="";
-  for(let i=0;i<CFG.boxCount;i++){
-    const d=document.createElement("div");
-    d.className="slot";
-    bar.appendChild(d);
+  function showToast(text){
+    toast.textContent = text;
+    toast.style.display = "block";
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(()=>toast.style.display="none", 1200);
   }
-  reward=0;
-}
 
-function giveReward(){
-  const slot=bar.children[reward];
-  if(!slot)return;
-  const it=CFG.items[reward%CFG.items.length];
-  if(it){
-    const img=document.createElement("img");
-    img.src=it.img;
-    slot.appendChild(img);
+  let W=0,H=0, DPR=1;
+  function resize(){
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const r = canvas.getBoundingClientRect();
+    W = Math.floor(r.width * DPR);
+    H = Math.floor(r.height * DPR);
+    canvas.width = W;
+    canvas.height = H;
   }
-  reward++;
-}
+  new ResizeObserver(resize).observe(canvas);
+  window.addEventListener("resize", resize);
 
-function spawn(){
-  boxes=[];
-  const tScale=clamp(CFG.tankScale,0.5,5);
-  const bScale=clamp(CFG.boxScale,0.5,5);
-
-  tank.w=90*DPR*tScale;
-  tank.h=60*DPR*tScale;
-  tank.x=30*DPR;
-  tank.y=H-tank.h-30*DPR;
-
-  const bw=64*DPR*bScale;
-  const bh=bw;
-
-  for(let i=0;i<CFG.boxCount;i++){
-    boxes.push({
-      x:Math.random()*(W-bw),
-      y:Math.random()*(H-bh-80*DPR),
-      w:bw,h:bh,alive:true
+  function loadImg(url){
+    return new Promise((resolve) => {
+      if (!url) return resolve(null);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
     });
   }
-}
 
-function shoot(){
-  bullets.push({
-    x:tank.x+tank.w/2,
-    y:tank.y+tank.h/2,
-    vx:tank.dx*CFG.bulletSpeed*DPR,
-    vy:tank.dy*CFG.bulletSpeed*DPR
-  });
-}
+  let IMG_TANK=null, IMG_BOX=null, IMG_FIELD=null;
 
-window.addEventListener("keydown",e=>{
-  const k=e.key.toLowerCase();
-  if(k===" ")shoot();
-  keys.add(k);
-});
-window.addEventListener("keyup",e=>keys.delete(e.key.toLowerCase()));
+  const keys = new Set();
+  let tank = { x: 120, y: 120, w: 72, h: 48, dirX:1, dirY:0 };
+  let bullets = [];
+  let boxes = [];
+  let rewardIndex = 0;
 
-window.addEventListener("message",e=>{
-  if(e.data?.type==="TANK_MISSION_CONFIG")apply(e.data.payload);
-});
+  function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
+  function rectsHit(a,b){
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
 
-async function apply(c){
-  CFG={...DEFAULT,...c};
-  [IMG_TANK,IMG_BOX,IMG_FIELD]=await Promise.all([
-    loadImg(CFG.tankUrl),
-    loadImg(CFG.boxUrl),
-    loadImg(CFG.fieldUrl)
-  ]);
-  buildSlots();
-  spawn();
-}
-
-function loop(){
-  let dx=0,dy=0;
-  if(keys.has("a")||keys.has("arrowleft"))dx=-1;
-  if(keys.has("d")||keys.has("arrowright"))dx=1;
-  if(keys.has("w")||keys.has("arrowup"))dy=-1;
-  if(keys.has("s")||keys.has("arrowdown"))dy=1;
-
-  if(dx||dy){tank.dx=dx;tank.dy=dy;}
-  tank.x=clamp(tank.x+dx*CFG.tankSpeed*DPR,0,W-tank.w);
-  tank.y=clamp(tank.y+dy*CFG.tankSpeed*DPR,0,H-tank.h);
-
-  bullets.forEach(b=>{b.x+=b.vx;b.y+=b.vy});
-
-  bullets.forEach(b=>{
-    boxes.forEach(box=>{
-      if(box.alive &&
-        b.x>box.x&&b.x<box.x+box.w&&
-        b.y>box.y&&b.y<box.y+box.h){
-          box.alive=false;
-          giveReward();
-      }
-    });
-  });
-
-  ctx.clearRect(0,0,W,H);
-  if(IMG_FIELD)ctx.drawImage(IMG_FIELD,0,0,W,H);
-
-  boxes.forEach(b=>b.alive&&IMG_BOX&&ctx.drawImage(IMG_BOX,b.x,b.y,b.w,b.h));
-
-  if(IMG_TANK){
-    ctx.save();
-    if(tank.dx<0){
-      ctx.translate(tank.x+tank.w,tank.y);
-      ctx.scale(-1,1);
-      ctx.drawImage(IMG_TANK,0,0,tank.w,tank.h);
-    }else{
-      ctx.drawImage(IMG_TANK,tank.x,tank.y,tank.w,tank.h);
+  function buildSlots(){
+    bar.innerHTML = "";
+    const n = clamp(Math.floor(CFG.boxCount||7), 1, 15);
+    for(let i=0;i<n;i++){
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      bar.appendChild(slot);
     }
-    ctx.restore();
+    rewardIndex = 0;
   }
 
-  bullets.forEach(b=>{
-    ctx.fillStyle="#fff";
-    ctx.beginPath();
-    ctx.arc(b.x,b.y,4*DPR,0,Math.PI*2);
-    ctx.fill();
+  function putRewardIntoSlot(){
+    const slots = bar.querySelectorAll(".slot");
+    if (!slots.length) return;
+
+    const i = rewardIndex;
+    if (i >= slots.length) return;
+    rewardIndex++;
+
+    const items = Array.isArray(CFG.items) ? CFG.items : [];
+    const slot = slots[i];
+    slot.innerHTML = "";
+
+    if (!items.length) return; // если предметов нет — слот пустой
+
+    const item = items[i % items.length];
+    if (item && item.img) {
+      const im = document.createElement("img");
+      im.src = item.img;
+      im.alt = item.label || "предмет";
+      slot.appendChild(im);
+    }
+  }
+
+  function getMinDistanceByDifficulty(){
+    if (CFG.difficulty === "easy") return 150;
+    if (CFG.difficulty === "hard") return 70;
+    return 110;
+  }
+
+  // ✅ старт танка внизу слева (с отступом)
+  function placeTankStart(){
+    const pad = 28 * DPR;
+    tank.x = pad;
+    tank.y = H - tank.h - pad;
+  }
+
+  function spawnBoxes(){
+    boxes = [];
+    const count = clamp(Math.floor(CFG.boxCount||7), 1, 15);
+
+    // базовые размеры
+    const tankBaseW = 84 * DPR, tankBaseH = 56 * DPR;
+    const boxBase = 64 * DPR;
+
+    // ✅ масштабы до 5
+    const tScale = clamp(Number(CFG.tankScale || 1), 0.5, 5.0);
+    const bScale = clamp(Number(CFG.boxScale  || 1), 0.5, 5.0);
+
+    tank.w = tankBaseW * tScale;
+    tank.h = tankBaseH * tScale;
+
+    const bw = boxBase * bScale;
+    const bh = boxBase * bScale;
+
+    placeTankStart();
+
+    const pad = 30 * DPR;
+    const minDist = getMinDistanceByDifficulty() * DPR;
+
+    const tries = 700;
+
+    for(let i=0;i<count;i++){
+      let placed=false;
+      for(let t=0;t<tries && !placed;t++){
+        const x = Math.random()*(W - bw - pad*2) + pad;
+        const y = Math.random()*(H - bh - pad*2) + pad;
+        const box = {x,y,w:bw,h:bh,alive:true};
+
+        const nearTank = rectsHit(
+          {x:x-minDist,y:y-minDist,w:bw+minDist*2,h:bh+minDist*2},
+          {x:tank.x,y:tank.y,w:tank.w,h:tank.h}
+        );
+        if (nearTank) continue;
+
+        let ok=true;
+        for(const b of boxes){
+          if (rectsHit({x:x-minDist/2,y:y-minDist/2,w:bw+minDist,h:bh+minDist}, b)) { ok=false; break; }
+        }
+        if(!ok) continue;
+
+        boxes.push(box);
+        placed=true;
+      }
+    }
+    showToast(`Ящики: ${boxes.length}`);
+  }
+
+  function shoot(){
+    const speed = (CFG.bulletSpeed || 6.5) * DPR;
+    let dx = tank.dirX, dy = tank.dirY;
+    if(dx===0 && dy===0) dx = 1;
+
+    const r = 5 * DPR;
+    bullets.push({
+      x: tank.x + tank.w/2,
+      y: tank.y + tank.h/2,
+      vx: dx * speed,
+      vy: dy * speed,
+      r
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (["arrowup","arrowdown","arrowleft","arrowright","w","a","s","d"," "].includes(k) || e.key===" ") e.preventDefault();
+    if (k === " ") shoot();
+    keys.add(k);
+  }, {passive:false});
+
+  window.addEventListener("keyup", (e) => {
+    keys.delete(e.key.toLowerCase());
   });
 
-  requestAnimationFrame(loop);
-}
+  async function applyConfig(newCfg){
+    CFG = { ...DEFAULT_CONFIG, ...newCfg };
+    CFG.boxCount = clamp(Math.floor(CFG.boxCount||7), 1, 15);
 
-resize();
-apply(DEFAULT);
-loop();
+    [IMG_TANK, IMG_BOX, IMG_FIELD] = await Promise.all([
+      loadImg(CFG.tankUrl),
+      loadImg(CFG.boxUrl),
+      loadImg(CFG.fieldUrl)
+    ]);
+
+    buildSlots();
+    spawnBoxes();
+  }
+
+  window.addEventListener("message", (e) => {
+    const d = e.data;
+    if(!d || d.type !== "TANK_MISSION_CONFIG") return;
+    applyConfig(d.payload || {});
+  });
+
+  function tryLoadFromURL(){
+    try{
+      const u = new URL(location.href);
+      const raw = u.searchParams.get("config");
+      if(!raw) return null;
+      return JSON.parse(decodeURIComponent(raw));
+    }catch(_){ return null; }
+  }
+
+  function drawCover(img){
+    if(!img) return;
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    if(!iw || !ih) return;
+    const scale = Math.max(W/iw, H/ih);
+    const dw = iw*scale, dh = ih*scale;
+    const dx = (W - dw)/2, dy = (H - dh)/2;
+    ctx.drawImage(img, dx, dy, dw, dh);
+  }
+
+  function drawBox(img, x,y,w,h){
+    if(img){
+      ctx.drawImage(img, x, y, w, h);
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,.18)";
+      ctx.fillRect(x,y,w,h);
+      ctx.strokeStyle = "rgba(255,255,255,.35)";
+      ctx.strokeRect(x,y,w,h);
+    }
+  }
+
+  function tick(){
+    const sp = (CFG.tankSpeed || 2.2) * DPR;
+    let dx=0,dy=0;
+    if(keys.has("arrowleft") || keys.has("a")) dx -= sp;
+    if(keys.has("arrowright")|| keys.has("d")) dx += sp;
+    if(keys.has("arrowup")   || keys.has("w")) dy -= sp;
+    if(keys.has("arrowdown") || keys.has("s")) dy += sp;
+
+    if(dx || dy){
+      const len = Math.hypot(dx,dy) || 1;
+      tank.dirX = dx/len;
+      tank.dirY = dy/len;
+    }
+
+    tank.x = clamp(tank.x + dx, 0, W - tank.w);
+    tank.y = clamp(tank.y + dy, 0, H - tank.h);
+
+    bullets.forEach(b => { b.x += b.vx; b.y += b.vy; });
+    bullets = bullets.filter(b => b.x>-30 && b.x<W+30 && b.y>-30 && b.y<H+30);
+
+    for(const b of bullets){
+      const br = {x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2};
+      for(const box of boxes){
+        if(!box.alive) continue;
+        if(rectsHit(br, box)){
+          box.alive = false;
+          b.x = -9999;
+          putRewardIntoSlot();
+          break;
+        }
+      }
+    }
+    bullets = bullets.filter(b => b.x>-1000);
+
+    ctx.clearRect(0,0,W,H);
+    drawCover(IMG_FIELD);
+    ctx.fillStyle = "rgba(10,14,28,.18)";
+    ctx.fillRect(0,0,W,H);
+
+    for(const box of boxes){
+      if(!box.alive) continue;
+      drawBox(IMG_BOX, box.x, box.y, box.w, box.h);
+    }
+
+    // поворот: зеркалим влево
+    if (IMG_TANK) {
+      const goingLeft = tank.dirX < 0;
+      ctx.save();
+      if (goingLeft) {
+        ctx.translate(tank.x + tank.w, tank.y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(IMG_TANK, 0, 0, tank.w, tank.h);
+      } else {
+        ctx.drawImage(IMG_TANK, tank.x, tank.y, tank.w, tank.h);
+      }
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,.18)";
+      ctx.fillRect(tank.x,tank.y,tank.w,tank.h);
+      ctx.strokeStyle = "rgba(255,255,255,.35)";
+      ctx.strokeRect(tank.x,tank.y,tank.w,tank.h);
+    }
+
+    ctx.fillStyle = "rgba(255,240,220,.95)";
+    for(const b of bullets){
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  resize();
+  applyConfig( tryLoadFromURL() || DEFAULT_CONFIG );
+  tick();
 })();
 </script>
 </body>
