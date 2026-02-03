@@ -1,345 +1,101 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Редактор — Танковая миссия</title>
-  <style>
-    :root{
-      --bg:#050a14;
-      --panel: rgba(255,255,255,.06);
-      --panel2: rgba(255,255,255,.08);
-      --border: rgba(255,255,255,.10);
-      --txt: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.65);
-      --r:18px;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    .wrap{display:grid;grid-template-columns: 360px 1fr;gap:14px;height:100%;padding:14px}
-    .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:14px}
-    .left{overflow:auto}
-    h1{font-size:18px;margin:0 0 10px}
-    label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px}
-    input,textarea,button{
-      width:100%;border-radius:12px;border:1px solid var(--border);
-      background:rgba(0,0,0,.25);color:var(--txt);padding:10px 12px;font-size:14px;
-      outline:none;
-    }
-    textarea{min-height:86px;resize:vertical}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .btn{background:var(--panel2);cursor:pointer}
-    .btn:active{transform:translateY(1px)}
-    .small{font-size:12px;color:var(--muted);line-height:1.35}
-    .items{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-    .item{display:flex;gap:10px;align-items:center;padding:10px;border-radius:14px;border:1px solid var(--border);background:rgba(0,0,0,.18)}
-    .item img{width:42px;height:42px;object-fit:contain;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08)}
-    .x{width:32px;height:32px;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.22);color:var(--txt);cursor:pointer}
-    .preview{padding:0;overflow:hidden}
-    iframe{width:100%;height:100%;border:0;display:block;background:transparent}
-    .stickyBtns{position:sticky;bottom:0;background:linear-gradient(transparent, rgba(5,10,20,.8) 30%, rgba(5,10,20,1));padding-top:10px}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Редактор Танчики</title>
+<style>
+body{margin:0;font-family:system-ui;background:#0a1020;color:#e6f1ff}
+.wrap{display:grid;grid-template-columns:380px 1fr;height:100vh;gap:12px;padding:12px}
+.panel{background:rgba(255,255,255,.06);border-radius:16px;padding:12px;overflow:auto}
+.preview{border-radius:16px;overflow:hidden}
+label{font-size:12px;opacity:.7}
+input,button,textarea{width:100%;margin-top:6px;margin-bottom:10px;padding:8px;border-radius:10px;border:0}
+button{background:#2a4c8a;color:#fff;font-weight:600;cursor:pointer}
+button.alt{background:#444}
+textarea{font-family:monospace;font-size:12px}
+</style>
 </head>
+
 <body>
 <div class="wrap">
-  <div class="card left">
-    <h1>Редактор «Танковая миссия»</h1>
+  <div class="panel">
+    <h3>Редактор «Танчики»</h3>
 
+    <!-- ТАНК -->
+    <label>Танк (URL)</label>
+    <input id="tankUrl">
+    <button class="alt" onclick="resetTank()">Вернуть стандартный танк</button>
+
+    <!-- ЯЩИК -->
+    <label>Ящики (URL)</label>
+    <input id="boxUrl">
+    <button class="alt" onclick="resetBox()">Вернуть стандартные ящики</button>
+
+    <!-- ФОН -->
+    <label>Фон (URL)</label>
+    <input id="bgUrl">
+
+    <!-- ЗВУКИ -->
+    <label>Звук выстрела (URL)</label>
+    <input id="shotSound">
+
+    <label>Звук попадания (URL)</label>
+    <input id="hitSound">
+
+    <!-- КОЛ-ВО -->
     <label>Количество ящиков (1–15)</label>
-    <input id="boxCount" type="number" min="1" max="15" value="7"/>
+    <input id="boxCount" type="number" min="1" max="15" value="7">
 
-    <div class="row">
-      <div>
-        <label>Размер танка (0.5–5)</label>
-        <input id="tankScale" type="number" min="0.5" max="5" step="0.1" value="1"/>
-      </div>
-      <div>
-        <label>Размер ящика (0.5–5)</label>
-        <input id="boxScale" type="number" min="0.5" max="5" step="0.1" value="1"/>
-      </div>
-    </div>
+    <!-- КНОПКИ -->
+    <button onclick="update()">Обновить предпросмотр</button>
+    <button onclick="copy()">Скопировать код</button>
 
-    <label>Танк — URL (можно пусто, если загрузишь файл ниже)</label>
-    <input id="tankUrl" placeholder="https://...tank.gif" value="https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif"/>
-    <label>или загрузить файл танка (GIF/PNG)</label>
-    <input id="tankFile" type="file" accept="image/*"/>
-
-    <label>Ящик — URL (можно пусто, если загрузишь файл ниже)</label>
-    <input id="boxUrl" placeholder="https://...box.png" value="https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png"/>
-    <label>или загрузить файл ящика (PNG)</label>
-    <input id="boxFile" type="file" accept="image/*"/>
-
-    <label>Фон поля — URL (можно пусто)</label>
-    <input id="bgUrl" placeholder="https://...field.png (можно оставить пустым)"/>
-    <label>или загрузить файл фона</label>
-    <input id="bgFile" type="file" accept="image/*"/>
-
-    <label>Звук выстрела — URL (mp3)</label>
-    <input id="shotSoundUrl" placeholder="https://...shot.mp3"/>
-    <label>или загрузить файл звука выстрела</label>
-    <input id="shotSoundFile" type="file" accept="audio/*"/>
-
-    <label>Звук попадания/взрыва — URL (mp3)</label>
-    <input id="hitSoundUrl" placeholder="https://...hit.mp3"/>
-    <label>или загрузить файл звука попадания</label>
-    <input id="hitSoundFile" type="file" accept="audio/*"/>
-
-    <div class="card" style="margin-top:12px">
-      <div style="font-weight:600;margin-bottom:6px">Предметы (награды)</div>
-      <div class="small">Можно добавлять предметы URL-ом или файлом. В игре при попадании в ящик предмет появится сверху.</div>
-
-      <div class="row">
-        <div>
-          <label>Слово (необязательно)</label>
-          <input id="itemWord" placeholder="например: СА, СО, СУ"/>
-        </div>
-        <div>
-          <label>URL картинки предмета</label>
-          <input id="itemUrl" placeholder="https://...png"/>
-        </div>
-      </div>
-      <label>или файл картинки предмета</label>
-      <input id="itemFile" type="file" accept="image/*"/>
-
-      <div class="row" style="margin-top:10px">
-        <button class="btn" id="addItem">Добавить предмет</button>
-        <button class="btn" id="clearItems">Очистить предметы</button>
-      </div>
-
-      <div class="items" id="items"></div>
-    </div>
-
-    <div class="card" style="margin-top:12px">
-      <div style="font-weight:600;margin-bottom:6px">Genially</div>
-
-      <label>JSONBin key (X-Master-Key) — нужно только для режима “ФАЙЛЫ”</label>
-      <input id="jsonbinKey" placeholder="вставь X-Master-Key из jsonbin.io"/>
-
-      <div class="row" style="margin-top:10px">
-        <button class="btn" id="updatePreview">Обновить предпросмотр</button>
-        <button class="btn" id="saveToBin">Сохранить для Genially (ФАЙЛЫ)</button>
-      </div>
-
-      <label style="margin-top:10px">iframe для Genially</label>
-      <textarea id="iframeOut" readonly></textarea>
-
-      <div class="row" style="margin-top:10px">
-        <button class="btn" id="copyBtn">Скопировать код</button>
-        <button class="btn" id="makeUrlBtn">Сформировать iframe (URL-режим)</button>
-      </div>
-
-      <div class="small" style="margin-top:8px">
-        • Кнопка копирует автоматически. Если Genially блокирует — код будет выделен, нажми Ctrl+C.<br/>
-        • “URL-режим” — короткий iframe, но работает только если ты использовала URL, а не файлы.<br/>
-        • “ФАЙЛЫ” — сохраняет конфиг в JSONBin и даёт короткий iframe, который работает в Genially.
-      </div>
-    </div>
-
-    <div class="stickyBtns"></div>
+    <label>iframe для Genially</label>
+    <textarea id="out" rows="4" readonly></textarea>
   </div>
 
-  <div class="card preview">
-    <iframe id="previewFrame" title="preview"></iframe>
+  <div class="preview">
+    <iframe id="game" style="width:100%;height:100%;border:0"></iframe>
   </div>
 </div>
 
 <script>
-(() => {
-  const GAME_URL = "../game/index.html";
+const DEFAULT_TANK =
+"https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif";
+const DEFAULT_BOX =
+"https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png";
 
-  const $ = (id) => document.getElementById(id);
+tankUrl.value = DEFAULT_TANK;
+boxUrl.value = DEFAULT_BOX;
 
-  const state = {
-    items: [],
-    fileData: { tank:null, box:null, bg:null, shot:null, hit:null }
+function resetTank(){ tankUrl.value = DEFAULT_TANK; update(); }
+function resetBox(){ boxUrl.value = DEFAULT_BOX; update(); }
+
+function cfg(){
+  return {
+    tankUrl:tankUrl.value,
+    boxUrl:boxUrl.value,
+    bgUrl:bgUrl.value,
+    shotSound:shotSound.value,
+    hitSound:hitSound.value,
+    boxCount:+boxCount.value
   };
+}
 
-  function fileToDataUrl(file){
-    return new Promise((resolve,reject)=>{
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result||""));
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-  }
+function update(){
+  const c = encodeURIComponent(JSON.stringify(cfg()));
+  const src = "../game/index.html?config=" + c;
+  game.src = src;
+  out.value = `<iframe style="width:100%;height:100%;border:0" src="${location.origin}/tank-mission-2026/game/index.html?config=${c}"></iframe>`;
+}
 
-  async function pickFileToState(inputId, key){
-    const inp = $(inputId);
-    if(!inp.files || !inp.files[0]) { state.fileData[key] = null; return; }
-    state.fileData[key] = await fileToDataUrl(inp.files[0]);
-  }
+function copy(){
+  out.select();
+  document.execCommand("copy");
+}
 
-  function clamp(n,min,max){
-    n = Number(n);
-    if(!Number.isFinite(n)) n = min;
-    return Math.max(min, Math.min(max, n));
-  }
-
-  function getConfigResolved(){
-    const cfg = {
-      boxCount: clamp($("boxCount").value, 1, 15),
-      tankScale: clamp($("tankScale").value, 0.5, 5),
-      boxScale: clamp($("boxScale").value, 0.5, 5),
-      tankUrl: $("tankUrl").value.trim(),
-      boxUrl: $("boxUrl").value.trim(),
-      bgUrl: $("bgUrl").value.trim(),
-      shotSoundUrl: $("shotSoundUrl").value.trim(),
-      hitSoundUrl: $("hitSoundUrl").value.trim(),
-      items: state.items.map(x => ({word:x.word||"", url:x.url||""}))
-    };
-
-    // если выбраны файлы — они важнее URL
-    if(state.fileData.tank) cfg.tankUrl = state.fileData.tank;
-    if(state.fileData.box)  cfg.boxUrl  = state.fileData.box;
-    if(state.fileData.bg)   cfg.bgUrl   = state.fileData.bg;
-    if(state.fileData.shot) cfg.shotSoundUrl = state.fileData.shot;
-    if(state.fileData.hit)  cfg.hitSoundUrl  = state.fileData.hit;
-
-    return cfg;
-  }
-
-  function renderItems(){
-    const wrap = $("items");
-    wrap.innerHTML = "";
-    state.items.forEach((it, idx) => {
-      const row = document.createElement("div");
-      row.className = "item";
-      const img = document.createElement("img");
-      img.src = it.url || "";
-      const meta = document.createElement("div");
-      meta.style.flex = "1";
-      meta.innerHTML = `<div style="font-weight:600">${it.word ? it.word : "без слова"}</div>
-                        <div class="small">картинка добавлена</div>`;
-      const x = document.createElement("button");
-      x.className = "x";
-      x.textContent = "×";
-      x.onclick = () => { state.items.splice(idx,1); renderItems(); };
-      row.append(img, meta, x);
-      wrap.append(row);
-    });
-  }
-
-  function setIframeText(src){
-    const code = `<iframe style="border:0;width:100%;height:100%;" src="${src}"></iframe>`;
-    $("iframeOut").value = code;
-  }
-
-  function updatePreview(){
-    const cfg = getConfigResolved();
-    const src = `${GAME_URL}?config=${encodeURIComponent(JSON.stringify(cfg))}`;
-    $("previewFrame").src = src;
-    // ВАЖНО: это для предпросмотра. Для Genially с файлами нужен JSONBin.
-    setIframeText(src);
-  }
-
-  function buildUrlModeIframe(){
-    // URL-режим (без файлов): просто config в ссылке
-    const cfg = getConfigResolved();
-
-    // если есть data: (файлы) — предупреждаем
-    const hasData = (cfg.tankUrl||"").startsWith("data:") || (cfg.boxUrl||"").startsWith("data:") || (cfg.bgUrl||"").startsWith("data:")
-      || (cfg.shotSoundUrl||"").startsWith("data:") || (cfg.hitSoundUrl||"").startsWith("data:");
-    if(hasData){
-      alert("Ты используешь файлы (data:). Для Genially так нельзя. Нажми «Сохранить для Genially (ФАЙЛЫ)».");
-      return;
-    }
-
-    const src = `${location.origin}${location.pathname.replace(/editor\/index\.html.*$/,'')}${GAME_URL}?config=${encodeURIComponent(JSON.stringify(cfg))}`;
-    setIframeText(src);
-  }
-
-  async function saveToJsonBin(){
-    const key = $("jsonbinKey").value.trim();
-    if(!key){
-      alert("Нужен JSONBin key (X-Master-Key). Вставь ключ и повтори.");
-      return;
-    }
-
-    const cfg = getConfigResolved();
-
-    // создаём PUBLIC bin, чтобы игра могла читать без ключа
-    const res = await fetch("https://api.jsonbin.io/v3/b", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Master-Key": key,
-        "X-Bin-Private": "false",
-        "X-Bin-Name": "tank-mission-config"
-      },
-      body: JSON.stringify(cfg)
-    });
-
-    if(!res.ok){
-      const t = await res.text().catch(()=> "");
-      alert("Не удалось сохранить в JSONBin. Код: "+res.status+"\n"+t);
-      return;
-    }
-
-    const data = await res.json();
-    const id = data && data.metadata && data.metadata.id;
-    if(!id){
-      alert("JSONBin сохранил, но не вернул id. Проверь ответ.");
-      return;
-    }
-
-    const absGame = `${location.origin}${location.pathname.replace(/editor\/index\.html.*$/,'')}${GAME_URL}`;
-    const src = `${absGame}?bin=${encodeURIComponent(id)}`;
-    setIframeText(src);
-
-    // и сразу обновим предпросмотр по bin (чтобы было 1:1 как в Genially)
-    $("previewFrame").src = src;
-    alert("Готово! Теперь вставляй этот iframe в Genially.");
-  }
-
-  async function addItem(){
-    const word = $("itemWord").value.trim();
-    let url = $("itemUrl").value.trim();
-
-    const f = $("itemFile").files && $("itemFile").files[0];
-    if(f){
-      url = await fileToDataUrl(f);
-    }
-    if(!url){
-      alert("Добавь URL или выбери файл предмета.");
-      return;
-    }
-    state.items.push({word, url});
-    $("itemWord").value = "";
-    $("itemUrl").value = "";
-    $("itemFile").value = "";
-    renderItems();
-  }
-
-  function copyOut(){
-    const ta = $("iframeOut");
-    ta.focus();
-    ta.select();
-    try{
-      document.execCommand("copy");
-      // если блокируют — всё равно выделено, можно Ctrl+C
-    }catch(e){}
-  }
-
-  // события файлов: читаем в state
-  $("tankFile").addEventListener("change", ()=>pickFileToState("tankFile","tank"));
-  $("boxFile").addEventListener("change",  ()=>pickFileToState("boxFile","box"));
-  $("bgFile").addEventListener("change",   ()=>pickFileToState("bgFile","bg"));
-  $("shotSoundFile").addEventListener("change", ()=>pickFileToState("shotSoundFile","shot"));
-  $("hitSoundFile").addEventListener("change",  ()=>pickFileToState("hitSoundFile","hit"));
-
-  $("addItem").addEventListener("click", addItem);
-  $("clearItems").addEventListener("click", ()=>{ state.items=[]; renderItems(); });
-
-  $("updatePreview").addEventListener("click", updatePreview);
-  $("makeUrlBtn").addEventListener("click", buildUrlModeIframe);
-  $("saveToBin").addEventListener("click", saveToJsonBin);
-  $("copyBtn").addEventListener("click", copyOut);
-
-  // стартовый предпросмотр
-  renderItems();
-  updatePreview();
-})();
+update();
 </script>
 </body>
 </html>
-
