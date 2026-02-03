@@ -55,6 +55,7 @@
 
 <script>
 (() => {
+  // ====== НАСТРОЙКИ ПО УМОЛЧАНИЮ ======
   const DEFAULT_CONFIG = {
     boxCount: 7,                 // 1..15
     difficulty: "normal",        // easy | normal | hard
@@ -62,18 +63,23 @@
     tankSpeed: 2.2,
     bulletSpeed: 6.5,
 
-    // ✅ ВОТ ОНО: масштаб до 5
     tankScale: 1.0,              // 0.5..5.0
     boxScale: 1.0,               // 0.5..5.0
 
     tankUrl: "https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif",
     boxUrl:  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
     fieldUrl: "",
+
+    // ✅ НОВОЕ: звуки (URL или data:)
+    shootSoundUrl: "",
+    hitSoundUrl: "",
+
     items: [] // [{label:"", img:"url/data:"}, ...]
   };
 
   let CFG = structuredClone(DEFAULT_CONFIG);
 
+  // ====== UI ======
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   const bar = document.getElementById("bar");
@@ -86,6 +92,7 @@
     showToast._t = setTimeout(()=>toast.style.display="none", 1200);
   }
 
+  // ====== RESIZE ======
   let W=0,H=0, DPR=1;
   function resize(){
     DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -98,6 +105,7 @@
   new ResizeObserver(resize).observe(canvas);
   window.addEventListener("resize", resize);
 
+  // ====== ASSETS (картинки) ======
   function loadImg(url){
     return new Promise((resolve) => {
       if (!url) return resolve(null);
@@ -108,13 +116,38 @@
       img.src = url;
     });
   }
-
   let IMG_TANK=null, IMG_BOX=null, IMG_FIELD=null;
 
+  // ====== AUDIO ======
+  let shootAudio = null;
+  let hitAudio = null;
+
+  function makeAudio(url){
+    if(!url) return null;
+    try{
+      const a = new Audio(url);
+      a.preload = "auto";
+      a.volume = 1.0;
+      return a;
+    }catch(_){
+      return null;
+    }
+  }
+
+  function playSound(a){
+    if(!a) return;
+    try{
+      // быстрый повтор: сбрасываем позицию
+      a.currentTime = 0;
+      a.play().catch(()=>{ /* в Genially иногда блокируется без клика — это ок */ });
+    }catch(_){}
+  }
+
+  // ====== STATE ======
   const keys = new Set();
   let tank = { x: 120, y: 120, w: 72, h: 48, dirX:1, dirY:0 };
-  let bullets = [];
-  let boxes = [];
+  let bullets = []; // {x,y,vx,vy,r}
+  let boxes = [];   // {x,y,w,h,alive:true}
   let rewardIndex = 0;
 
   function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
@@ -122,6 +155,7 @@
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
+  // ====== HUD ======
   function buildSlots(){
     bar.innerHTML = "";
     const n = clamp(Math.floor(CFG.boxCount||7), 1, 15);
@@ -145,7 +179,7 @@
     const slot = slots[i];
     slot.innerHTML = "";
 
-    if (!items.length) return; // если предметов нет — слот пустой
+    if (!items.length) return;
 
     const item = items[i % items.length];
     if (item && item.img) {
@@ -162,7 +196,7 @@
     return 110;
   }
 
-  // ✅ старт танка внизу слева (с отступом)
+  // старт танка снизу слева с отступом
   function placeTankStart(){
     const pad = 28 * DPR;
     tank.x = pad;
@@ -173,11 +207,9 @@
     boxes = [];
     const count = clamp(Math.floor(CFG.boxCount||7), 1, 15);
 
-    // базовые размеры
     const tankBaseW = 84 * DPR, tankBaseH = 56 * DPR;
     const boxBase = 64 * DPR;
 
-    // ✅ масштабы до 5
     const tScale = clamp(Number(CFG.tankScale || 1), 0.5, 5.0);
     const bScale = clamp(Number(CFG.boxScale  || 1), 0.5, 5.0);
 
@@ -191,7 +223,6 @@
 
     const pad = 30 * DPR;
     const minDist = getMinDistanceByDifficulty() * DPR;
-
     const tries = 700;
 
     for(let i=0;i<count;i++){
@@ -203,7 +234,7 @@
 
         const nearTank = rectsHit(
           {x:x-minDist,y:y-minDist,w:bw+minDist*2,h:bh+minDist*2},
-          {x:tank.x,y:tank.y,w:tank.w,h:tank.h}
+          {x:tank.x, y:tank.y, w:tank.w, h:tank.h}
         );
         if (nearTank) continue;
 
@@ -217,7 +248,6 @@
         placed=true;
       }
     }
-    showToast(`Ящики: ${boxes.length}`);
   }
 
   function shoot(){
@@ -233,8 +263,12 @@
       vy: dy * speed,
       r
     });
+
+    // ✅ звук выстрела
+    playSound(shootAudio);
   }
 
+  // ====== CONTROLS ======
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
     if (["arrowup","arrowdown","arrowleft","arrowright","w","a","s","d"," "].includes(k) || e.key===" ") e.preventDefault();
@@ -246,6 +280,7 @@
     keys.delete(e.key.toLowerCase());
   });
 
+  // ====== APPLY CONFIG ======
   async function applyConfig(newCfg){
     CFG = { ...DEFAULT_CONFIG, ...newCfg };
     CFG.boxCount = clamp(Math.floor(CFG.boxCount||7), 1, 15);
@@ -256,16 +291,22 @@
       loadImg(CFG.fieldUrl)
     ]);
 
+    // ✅ обновляем звуки
+    shootAudio = makeAudio(CFG.shootSoundUrl);
+    hitAudio   = makeAudio(CFG.hitSoundUrl);
+
     buildSlots();
     spawnBoxes();
   }
 
+  // ====== FROM EDITOR ======
   window.addEventListener("message", (e) => {
     const d = e.data;
     if(!d || d.type !== "TANK_MISSION_CONFIG") return;
     applyConfig(d.payload || {});
   });
 
+  // ====== FROM URL (?config=...) ======
   function tryLoadFromURL(){
     try{
       const u = new URL(location.href);
@@ -275,6 +316,7 @@
     }catch(_){ return null; }
   }
 
+  // ====== DRAW ======
   function drawCover(img){
     if(!img) return;
     const iw = img.naturalWidth, ih = img.naturalHeight;
@@ -296,6 +338,7 @@
     }
   }
 
+  // ====== LOOP ======
   function tick(){
     const sp = (CFG.tankSpeed || 2.2) * DPR;
     let dx=0,dy=0;
@@ -316,6 +359,7 @@
     bullets.forEach(b => { b.x += b.vx; b.y += b.vy; });
     bullets = bullets.filter(b => b.x>-30 && b.x<W+30 && b.y>-30 && b.y<H+30);
 
+    // collisions bullet-box
     for(const b of bullets){
       const br = {x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2};
       for(const box of boxes){
@@ -324,6 +368,8 @@
           box.alive = false;
           b.x = -9999;
           putRewardIntoSlot();
+          // ✅ звук попадания/взрыва
+          playSound(hitAudio);
           break;
         }
       }
@@ -340,7 +386,7 @@
       drawBox(IMG_BOX, box.x, box.y, box.w, box.h);
     }
 
-    // поворот: зеркалим влево
+    // tank mirror left
     if (IMG_TANK) {
       const goingLeft = tank.dirX < 0;
       ctx.save();
