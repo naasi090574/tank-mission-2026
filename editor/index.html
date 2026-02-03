@@ -7,12 +7,11 @@
   <style>
     :root{
       --bg:#0a1020; --panel:rgba(14,22,40,.72); --br:rgba(255,255,255,.10);
-      --txt:#d9ecff; --mut:#9bb7d6; --btn:#1f3b6b;
-      --r:18px;
+      --txt:#d9ecff; --mut:#9bb7d6; --r:18px;
     }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    .app{position:fixed;inset:0;display:grid;grid-template-columns: 360px 1fr;gap:12px;padding:12px}
+    .app{position:fixed;inset:0;display:grid;grid-template-columns: 380px 1fr;gap:12px;padding:12px}
     .panel{
       background:var(--panel); border:1px solid var(--br); border-radius:var(--r);
       padding:12px; overflow:auto; backdrop-filter: blur(10px);
@@ -21,10 +20,10 @@
       background:rgba(10,16,32,.65); border:1px solid var(--br); border-radius:var(--r);
       overflow:hidden; position:relative;
     }
-    .h{font-weight:800;margin:0 0 10px 0}
+    .h{font-weight:900;margin:0 0 10px 0}
     .sec{padding:10px;border-radius:14px;border:1px solid var(--br);background:rgba(255,255,255,.04);margin-bottom:10px}
     label{display:block;font-size:12px;color:var(--mut);margin:8px 0 6px}
-    input[type="text"], input[type="number"]{
+    input[type="text"], input[type="number"], select{
       width:100%; padding:10px 10px; border-radius:12px; border:1px solid var(--br);
       background:rgba(0,0,0,.22); color:var(--txt); outline:none;
     }
@@ -33,9 +32,10 @@
     .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
     button{
       padding:10px 12px;border-radius:12px;border:1px solid var(--br);
-      background:rgba(31,59,107,.65);color:var(--txt);cursor:pointer;font-weight:700;
+      background:rgba(31,59,107,.65);color:var(--txt);cursor:pointer;font-weight:800;
     }
     button.secondary{background:rgba(255,255,255,.06)}
+    .mini{font-size:12px;color:rgba(210,230,255,.72);margin-top:6px;line-height:1.35}
     .items{display:flex;flex-direction:column;gap:8px}
     .item{
       display:grid;grid-template-columns:60px 1fr 34px;gap:8px;align-items:center;
@@ -46,8 +46,9 @@
       background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;overflow:hidden;
     }
     .thumb img{max-width:100%;max-height:100%}
-    .mini{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.35}
     iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent}
+    .check{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .check input{width:auto}
   </style>
 </head>
 <body>
@@ -56,38 +57,60 @@
       <h3 class="h">Редактор «Танковая миссия»</h3>
 
       <div class="sec">
-        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Настройки</div>
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Настройки: ящики и сложность</div>
         <div class="row">
           <div>
             <label>Ящиков на поле (1–15)</label>
             <input id="boxCount" type="number" min="1" max="15" value="7">
           </div>
           <div>
+            <label>Сложность</label>
+            <select id="difficulty">
+              <option value="easy">Лёгкая</option>
+              <option value="normal" selected>Нормальная</option>
+              <option value="hard">Сложная</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="check">
+          <input id="randomBoxes" type="checkbox" checked>
+          <label for="randomBoxes" style="margin:0;color:rgba(210,230,255,.85)">Ящики ставить рандомно</label>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div>
             <label>Скорость танка</label>
             <input id="tankSpeed" type="number" step="0.1" value="2.2">
           </div>
+          <div>
+            <label>Скорость пули</label>
+            <input id="bulletSpeed" type="number" step="0.1" value="6.5">
+          </div>
         </div>
+
+        <div class="mini">Сложность меняет “насколько близко” могут стоять ящики.</div>
       </div>
 
       <div class="sec">
-        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Визуал</div>
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Картинки: танк, ящик, фон</div>
 
         <label>Танк (URL)</label>
         <input id="tankUrl" type="text" value="https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif">
-        <label>или файл танка (GIF/PNG)</label>
+        <label>или загрузить файл танка (GIF/PNG)</label>
         <input id="tankFile" type="file" accept="image/*">
 
         <label>Ящик (URL)</label>
         <input id="boxUrl" type="text" value="https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png">
-        <label>или файл ящика (PNG)</label>
+        <label>или загрузить файл ящика (PNG)</label>
         <input id="boxFile" type="file" accept="image/*">
 
         <label>Фон поля (URL)</label>
         <input id="fieldUrl" type="text" placeholder="можно оставить пустым">
-        <label>или файл фона</label>
+        <label>или загрузить файл фона</label>
         <input id="fieldFile" type="file" accept="image/*">
 
-        <div class="mini">Файлы превращаются в “встроенные ссылки” (data:...), поэтому предпросмотр работает сразу.</div>
+        <div class="mini">Если выбираешь файл — он сразу работает в предпросмотре.</div>
       </div>
 
       <div class="sec">
@@ -96,14 +119,14 @@
         <div class="row">
           <div>
             <label>Слово (необязательно)</label>
-            <input id="newLabel" type="text" placeholder="например: СА, СО, СУ">
+            <input id="newLabel" type="text" placeholder="например: СА">
           </div>
           <div>
-            <label>URL картинки предмета</label>
+            <label>URL предмета</label>
             <input id="newImgUrl" type="text" placeholder="https://...png">
           </div>
         </div>
-        <label>или файл картинки предмета</label>
+        <label>или загрузить файл предмета</label>
         <input id="newImgFile" type="file" accept="image/*">
 
         <div class="btns">
@@ -114,16 +137,16 @@
         <div style="height:10px"></div>
         <div class="items" id="items"></div>
 
-        <div class="mini">В игре при попадании в ящик предмет добавляется в верхнюю панель по очереди из этого списка.</div>
+        <div class="mini">В игре слоты сверху = количеству ящиков. При попадании слот заполняется предметом.</div>
       </div>
 
       <div class="sec">
         <div class="h" style="font-size:13px;margin:0 0 8px 0;">Предпросмотр и вставка</div>
         <div class="btns">
           <button id="btnPreview">Обновить предпросмотр</button>
-          <button id="btnCopy">Копировать iframe</button>
+          <button id="btnCopy">Копировать iframe для Genially</button>
         </div>
-        <div class="mini">“Копировать iframe” сделает код для вставки в Genially (или куда угодно).</div>
+        <div class="mini">После настроек нажми “Обновить предпросмотр”.</div>
       </div>
     </div>
 
@@ -134,14 +157,14 @@
 
 <script>
 (() => {
-  const els = (id) => document.getElementById(id);
+  const el = (id) => document.getElementById(id);
 
-  const state = {
-    items: []
-  };
+  const state = { items: [] };
 
-  const preview = els("preview");
+  const preview = el("preview");
   preview.src = "../game/index.html";
+
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 
   function fileToDataURL(file){
     return new Promise((resolve) => {
@@ -153,11 +176,9 @@
     });
   }
 
-  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-
-  async function resolveImage(urlInputId, fileInputId){
-    const url = (els(urlInputId).value || "").trim();
-    const file = els(fileInputId).files && els(fileInputId).files[0];
+  async function resolveImage(urlId, fileId){
+    const url = (el(urlId).value || "").trim();
+    const file = el(fileId).files && el(fileId).files[0];
     if (file) {
       const data = await fileToDataURL(file);
       if (data) return data;
@@ -166,8 +187,12 @@
   }
 
   async function collectConfig(){
-    const boxCount = clamp(Number(els("boxCount").value || 7), 1, 15);
-    const tankSpeed = Number(els("tankSpeed").value || 2.2);
+    const boxCount = clamp(Number(el("boxCount").value || 7), 1, 15);
+    const difficulty = el("difficulty").value || "normal";
+    const randomBoxes = !!el("randomBoxes").checked;
+
+    const tankSpeed = Number(el("tankSpeed").value || 2.2);
+    const bulletSpeed = Number(el("bulletSpeed").value || 6.5);
 
     const tankUrl = await resolveImage("tankUrl","tankFile");
     const boxUrl  = await resolveImage("boxUrl","boxFile");
@@ -175,7 +200,10 @@
 
     return {
       boxCount,
+      difficulty,
+      randomBoxes,
       tankSpeed,
+      bulletSpeed,
       tankUrl,
       boxUrl,
       fieldUrl,
@@ -184,7 +212,7 @@
   }
 
   function renderItems(){
-    const wrap = els("items");
+    const wrap = el("items");
     wrap.innerHTML = "";
 
     state.items.forEach((it, idx) => {
@@ -205,7 +233,7 @@
 
       const info = document.createElement("div");
       info.innerHTML = `
-        <div style="font-weight:800;font-size:13px">${it.label ? it.label : "без слова"}</div>
+        <div style="font-weight:900;font-size:13px">${it.label ? it.label : "без слова"}</div>
         <div style="font-size:12px;color:rgba(210,230,255,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           ${it.img ? it.img : "без картинки"}
         </div>
@@ -234,48 +262,49 @@
     preview.contentWindow.postMessage({ type:"TANK_MISSION_CONFIG", payload: cfg }, "*");
   }
 
-  // buttons
-  els("btnPreview").addEventListener("click", sendToPreview);
+  // кнопки
+  el("btnPreview").addEventListener("click", sendToPreview);
 
-  els("addItem").addEventListener("click", async () => {
-    const label = (els("newLabel").value || "").trim();
-    const url = (els("newImgUrl").value || "").trim();
-    const file = els("newImgFile").files && els("newImgFile").files[0];
+  el("addItem").addEventListener("click", async () => {
+    const label = (el("newLabel").value || "").trim();
+    const url = (el("newImgUrl").value || "").trim();
+    const file = el("newImgFile").files && el("newImgFile").files[0];
     const img = file ? await fileToDataURL(file) : url;
 
     state.items.push({ label, img });
-    els("newLabel").value = "";
-    els("newImgUrl").value = "";
-    els("newImgFile").value = "";
+    el("newLabel").value = "";
+    el("newImgUrl").value = "";
+    el("newImgFile").value = "";
     renderItems();
     sendToPreview();
   });
 
-  els("clearItems").addEventListener("click", () => {
+  el("clearItems").addEventListener("click", () => {
     state.items = [];
     renderItems();
     sendToPreview();
   });
 
-  els("btnCopy").addEventListener("click", async () => {
+  el("btnCopy").addEventListener("click", async () => {
     const cfg = await collectConfig();
     const encoded = encodeURIComponent(JSON.stringify(cfg));
     const src = `../game/index.html?config=${encoded}`;
     const iframe = `<iframe style="border:0;width:100%;height:100%;" src="${src}"></iframe>`;
-
     await navigator.clipboard.writeText(iframe);
     alert("Готово! iframe скопирован.");
   });
 
-  // auto update (коротко и удобно)
-  ["boxCount","tankSpeed","tankUrl","boxUrl","fieldUrl"].forEach(id => {
-    els(id).addEventListener("input", () => {
+  // авто-обновление (чтобы было удобно)
+  ["boxCount","difficulty","randomBoxes","tankSpeed","bulletSpeed","tankUrl","boxUrl","fieldUrl"].forEach(id => {
+    const node = el(id);
+    node.addEventListener(node.type === "checkbox" ? "change" : "input", () => {
       clearTimeout(window.__t);
       window.__t = setTimeout(sendToPreview, 150);
     });
   });
+
   ["tankFile","boxFile","fieldFile"].forEach(id => {
-    els(id).addEventListener("change", sendToPreview);
+    el(id).addEventListener("change", sendToPreview);
   });
 
   preview.addEventListener("load", sendToPreview);
