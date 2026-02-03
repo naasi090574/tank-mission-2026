@@ -3,421 +3,355 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Танковая миссия — игра</title>
+  <title>Танковая миссия</title>
   <style>
-    html,body{margin:0;height:100%;background:#0b1220;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    #wrap{position:fixed;inset:0;display:flex;flex-direction:column}
+    html,body{margin:0;height:100%;background:#071020;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    #game{position:fixed;inset:0}
     #hud{
-      height:74px; flex:0 0 74px;
-      display:flex; align-items:center; gap:10px;
-      padding:10px 12px;
-      background:rgba(10,18,35,.72);
-      border-bottom:1px solid rgba(255,255,255,.08);
-      backdrop-filter: blur(8px);
-      box-sizing:border-box;
+      position:fixed;left:14px;top:10px;right:14px;display:flex;gap:8px;align-items:center;justify-content:space-between;
+      pointer-events:none;
     }
-    #hud .title{color:#cfe6ff;font-weight:700;font-size:14px;opacity:.9}
-    #bar{display:flex;align-items:center;gap:8px;flex:1;overflow:auto;padding-bottom:2px}
-    .slot{
-      width:48px;height:48px;border-radius:12px;
-      background:rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.08);
-      display:flex;align-items:center;justify-content:center;
-      flex:0 0 auto; position:relative;
+    #rewards{display:flex;gap:8px;align-items:center;pointer-events:none}
+    .slot{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}
+    .slot img{width:100%;height:100%;object-fit:contain}
+    #hint{color:rgba(255,255,255,.65);font-size:12px;pointer-events:none}
+    #err{
+      position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+      color:#fff;background:rgba(0,0,0,.55);padding:24px;text-align:center
     }
-    .slot img{max-width:82%;max-height:82%}
-    #hint{color:rgba(210,230,255,.75);font-size:12px;white-space:nowrap}
-    #stage{position:relative;flex:1}
-    canvas{position:absolute;inset:0;width:100%;height:100%}
-    #toast{
-      position:absolute;left:12px;bottom:12px;
-      padding:10px 12px;border-radius:12px;
-      background:rgba(0,0,0,.35);color:#eaf3ff;font-size:12px;
-      border:1px solid rgba(255,255,255,.12);
-      backdrop-filter: blur(8px);
-      max-width:70%;
-      display:none;
-    }
+    canvas{display:block}
   </style>
 </head>
 <body>
-  <div id="wrap">
-    <div id="hud">
-      <div class="title">Награды:</div>
-      <div id="bar" aria-label="панель предметов"></div>
-      <div id="hint">WASD/стрелки — движение • Пробел — выстрел</div>
+  <div id="hud">
+    <div style="display:flex;gap:10px;align-items:center">
+      <div style="color:rgba(255,255,255,.75);font-size:13px">Награды:</div>
+      <div id="rewards"></div>
     </div>
-    <div id="stage">
-      <canvas id="c"></canvas>
-      <div id="toast"></div>
-    </div>
+    <div id="hint">WASD/стрелки — движение • Пробел — выстрел</div>
   </div>
+
+  <canvas id="game"></canvas>
+  <div id="err"></div>
 
 <script>
 (() => {
-  // ====== НАСТРОЙКИ ПО УМОЛЧАНИЮ ======
-  const DEFAULT_CONFIG = {
-    boxCount: 7,                 // 1..15
-    difficulty: "normal",        // easy | normal | hard
-    randomBoxes: true,
-    tankSpeed: 2.2,
-    bulletSpeed: 6.5,
+  const qs = new URLSearchParams(location.search);
 
-    tankScale: 1.0,              // 0.5..5.0
-    boxScale: 1.0,               // 0.5..5.0
-
-    tankUrl: "https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif",
-    boxUrl:  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
-    fieldUrl: "",
-
-    // ✅ НОВОЕ: звуки (URL или data:)
-    shootSoundUrl: "",
-    hitSoundUrl: "",
-
-    items: [] // [{label:"", img:"url/data:"}, ...]
-  };
-
-  let CFG = structuredClone(DEFAULT_CONFIG);
-
-  // ====== UI ======
-  const canvas = document.getElementById("c");
-  const ctx = canvas.getContext("2d");
-  const bar = document.getElementById("bar");
-  const toast = document.getElementById("toast");
-
-  function showToast(text){
-    toast.textContent = text;
-    toast.style.display = "block";
-    clearTimeout(showToast._t);
-    showToast._t = setTimeout(()=>toast.style.display="none", 1200);
+  function showErr(msg){
+    const el = document.getElementById('err');
+    el.style.display='flex';
+    el.innerHTML = '<div style="max-width:720px"><b>Ошибка</b><div style="margin-top:8px;opacity:.9">'+msg+'</div></div>';
   }
 
-  // ====== RESIZE ======
-  let W=0,H=0, DPR=1;
+  async function loadConfig(){
+    // 1) старый режим: ?config=... (ничего не ломаем)
+    if (qs.has('config')) {
+      try {
+        return JSON.parse(decodeURIComponent(qs.get('config')));
+      } catch(e){
+        showErr('Не удалось прочитать параметр config.');
+        throw e;
+      }
+    }
+
+    // 2) новый режим: ?bin=ID (для загрузок файлов)
+    if (qs.has('bin')) {
+      const id = qs.get('bin').trim();
+      try{
+        const url = `https://api.jsonbin.io/v3/b/${encodeURIComponent(id)}/latest?meta=false`;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const data = await res.json(); // meta=false -> сразу JSON рекорд
+        return data;
+      }catch(e){
+        showErr('Не удалось загрузить конфиг из JSONBin (bin='+id+'). Проверь, что бин публичный.');
+        throw e;
+      }
+    }
+
+    // 3) дефолт
+    return {
+      tankUrl: "https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif",
+      boxUrl:  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
+      bgUrl: "",
+      boxCount: 7,
+      tankScale: 1,
+      boxScale: 1,
+      shotSoundUrl: "",
+      hitSoundUrl: "",
+      items: []
+    };
+  }
+
+  function rand(min,max){ return Math.random()*(max-min)+min; }
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
   function resize(){
-    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-    const r = canvas.getBoundingClientRect();
-    W = Math.floor(r.width * DPR);
-    H = Math.floor(r.height * DPR);
-    canvas.width = W;
-    canvas.height = H;
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+    canvas.width = Math.floor(innerWidth*dpr);
+    canvas.height= Math.floor(innerHeight*dpr);
+    canvas.style.width = innerWidth+'px';
+    canvas.style.height= innerHeight+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
   }
-  new ResizeObserver(resize).observe(canvas);
-  window.addEventListener("resize", resize);
+  addEventListener('resize', resize);
 
-  // ====== ASSETS (картинки) ======
-  function loadImg(url){
-    return new Promise((resolve) => {
-      if (!url) return resolve(null);
+  function loadImage(src){
+    return new Promise((resolve,reject)=>{
       const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = url;
+      img.onload = ()=>resolve(img);
+      img.onerror = ()=>reject(new Error('img'));
+      img.src = src;
     });
   }
-  let IMG_TANK=null, IMG_BOX=null, IMG_FIELD=null;
 
-  // ====== AUDIO ======
-  let shootAudio = null;
-  let hitAudio = null;
-
-  function makeAudio(url){
-    if(!url) return null;
-    try{
-      const a = new Audio(url);
-      a.preload = "auto";
-      a.volume = 1.0;
-      return a;
-    }catch(_){
-      return null;
-    }
+  function loadAudio(src){
+    if(!src) return null;
+    const a = new Audio(src);
+    a.preload = 'auto';
+    return a;
   }
 
-  function playSound(a){
+  function aPlay(a){
     if(!a) return;
-    try{
-      // быстрый повтор: сбрасываем позицию
-      a.currentTime = 0;
-      a.play().catch(()=>{ /* в Genially иногда блокируется без клика — это ок */ });
-    }catch(_){}
+    try{ a.currentTime = 0; a.play().catch(()=>{}); }catch(e){}
   }
 
-  // ====== STATE ======
-  const keys = new Set();
-  let tank = { x: 120, y: 120, w: 72, h: 48, dirX:1, dirY:0 };
-  let bullets = []; // {x,y,vx,vy,r}
-  let boxes = [];   // {x,y,w,h,alive:true}
-  let rewardIndex = 0;
-
-  function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
   function rectsHit(a,b){
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
   }
 
-  // ====== HUD ======
-  function buildSlots(){
-    bar.innerHTML = "";
-    const n = clamp(Math.floor(CFG.boxCount||7), 1, 15);
+  function createSlots(items){
+    const wrap = document.getElementById('rewards');
+    wrap.innerHTML='';
+    const n = Math.max(0, (items && items.length) ? items.length : 8);
     for(let i=0;i<n;i++){
-      const slot = document.createElement("div");
-      slot.className = "slot";
-      bar.appendChild(slot);
-    }
-    rewardIndex = 0;
-  }
-
-  function putRewardIntoSlot(){
-    const slots = bar.querySelectorAll(".slot");
-    if (!slots.length) return;
-
-    const i = rewardIndex;
-    if (i >= slots.length) return;
-    rewardIndex++;
-
-    const items = Array.isArray(CFG.items) ? CFG.items : [];
-    const slot = slots[i];
-    slot.innerHTML = "";
-
-    if (!items.length) return;
-
-    const item = items[i % items.length];
-    if (item && item.img) {
-      const im = document.createElement("img");
-      im.src = item.img;
-      im.alt = item.label || "предмет";
-      slot.appendChild(im);
+      const s = document.createElement('div');
+      s.className='slot';
+      wrap.appendChild(s);
     }
   }
 
-  function getMinDistanceByDifficulty(){
-    if (CFG.difficulty === "easy") return 150;
-    if (CFG.difficulty === "hard") return 70;
-    return 110;
+  function putReward(imgUrl){
+    const wrap = document.getElementById('rewards');
+    const slot = [...wrap.children].find(s => !s.querySelector('img'));
+    if(!slot) return;
+    const img = document.createElement('img');
+    img.src = imgUrl;
+    slot.appendChild(img);
   }
 
-  // старт танка снизу слева с отступом
-  function placeTankStart(){
-    const pad = 28 * DPR;
-    tank.x = pad;
-    tank.y = H - tank.h - pad;
-  }
+  function placeBoxes(cfg, boxImg){
+    const boxes = [];
+    const count = Math.max(1, Math.min(15, Number(cfg.boxCount||7)));
+    const scale = Math.max(0.5, Math.min(5, Number(cfg.boxScale||1)));
 
-  function spawnBoxes(){
-    boxes = [];
-    const count = clamp(Math.floor(CFG.boxCount||7), 1, 15);
+    const bw = boxImg.width * scale;
+    const bh = boxImg.height * scale;
 
-    const tankBaseW = 84 * DPR, tankBaseH = 56 * DPR;
-    const boxBase = 64 * DPR;
-
-    const tScale = clamp(Number(CFG.tankScale || 1), 0.5, 5.0);
-    const bScale = clamp(Number(CFG.boxScale  || 1), 0.5, 5.0);
-
-    tank.w = tankBaseW * tScale;
-    tank.h = tankBaseH * tScale;
-
-    const bw = boxBase * bScale;
-    const bh = boxBase * bScale;
-
-    placeTankStart();
-
-    const pad = 30 * DPR;
-    const minDist = getMinDistanceByDifficulty() * DPR;
-    const tries = 700;
+    const pad = 80;
+    const tries = 3000;
 
     for(let i=0;i<count;i++){
-      let placed=false;
-      for(let t=0;t<tries && !placed;t++){
-        const x = Math.random()*(W - bw - pad*2) + pad;
-        const y = Math.random()*(H - bh - pad*2) + pad;
-        const box = {x,y,w:bw,h:bh,alive:true};
-
-        const nearTank = rectsHit(
-          {x:x-minDist,y:y-minDist,w:bw+minDist*2,h:bh+minDist*2},
-          {x:tank.x, y:tank.y, w:tank.w, h:tank.h}
-        );
-        if (nearTank) continue;
-
-        let ok=true;
+      let ok=false, x=0,y=0;
+      for(let t=0;t<tries;t++){
+        x = rand(pad, innerWidth - pad - bw);
+        y = rand(80, innerHeight - pad - bh);
+        const cand = {x,y,w:bw,h:bh};
+        ok = true;
         for(const b of boxes){
-          if (rectsHit({x:x-minDist/2,y:y-minDist/2,w:bw+minDist,h:bh+minDist}, b)) { ok=false; break; }
+          const dx = (cand.x+cand.w/2) - (b.x+b.w/2);
+          const dy = (cand.y+cand.h/2) - (b.y+b.h/2);
+          if (Math.hypot(dx,dy) < 90) { ok=false; break; }
         }
-        if(!ok) continue;
-
-        boxes.push(box);
-        placed=true;
+        if(ok) break;
       }
+      boxes.push({x,y,w:bw,h:bh,alive:true});
     }
+    return boxes;
   }
 
-  function shoot(){
-    const speed = (CFG.bulletSpeed || 6.5) * DPR;
-    let dx = tank.dirX, dy = tank.dirY;
-    if(dx===0 && dy===0) dx = 1;
+  (async () => {
+    const cfg = await loadConfig();
 
-    const r = 5 * DPR;
-    bullets.push({
-      x: tank.x + tank.w/2,
-      y: tank.y + tank.h/2,
-      vx: dx * speed,
-      vy: dy * speed,
-      r
-    });
+    resize();
 
-    // ✅ звук выстрела
-    playSound(shootAudio);
-  }
+    // HUD slots = по количеству наград (или 8)
+    createSlots(cfg.items && cfg.items.length ? cfg.items : new Array(8).fill(null));
 
-  // ====== CONTROLS ======
-  window.addEventListener("keydown", (e) => {
-    const k = e.key.toLowerCase();
-    if (["arrowup","arrowdown","arrowleft","arrowright","w","a","s","d"," "].includes(k) || e.key===" ") e.preventDefault();
-    if (k === " ") shoot();
-    keys.add(k);
-  }, {passive:false});
-
-  window.addEventListener("keyup", (e) => {
-    keys.delete(e.key.toLowerCase());
-  });
-
-  // ====== APPLY CONFIG ======
-  async function applyConfig(newCfg){
-    CFG = { ...DEFAULT_CONFIG, ...newCfg };
-    CFG.boxCount = clamp(Math.floor(CFG.boxCount||7), 1, 15);
-
-    [IMG_TANK, IMG_BOX, IMG_FIELD] = await Promise.all([
-      loadImg(CFG.tankUrl),
-      loadImg(CFG.boxUrl),
-      loadImg(CFG.fieldUrl)
+    // ассеты
+    const [tankImg, boxImg] = await Promise.all([
+      loadImage(cfg.tankUrl),
+      loadImage(cfg.boxUrl)
     ]);
 
-    // ✅ обновляем звуки
-    shootAudio = makeAudio(CFG.shootSoundUrl);
-    hitAudio   = makeAudio(CFG.hitSoundUrl);
+    const bgImg = cfg.bgUrl ? await loadImage(cfg.bgUrl).catch(()=>null) : null;
 
-    buildSlots();
-    spawnBoxes();
-  }
+    const shotSnd = loadAudio(cfg.shotSoundUrl);
+    const hitSnd  = loadAudio(cfg.hitSoundUrl);
 
-  // ====== FROM EDITOR ======
-  window.addEventListener("message", (e) => {
-    const d = e.data;
-    if(!d || d.type !== "TANK_MISSION_CONFIG") return;
-    applyConfig(d.payload || {});
-  });
+    // размеры
+    const tankScale = Math.max(0.5, Math.min(5, Number(cfg.tankScale||1)));
+    const tankW = tankImg.width * tankScale;
+    const tankH = tankImg.height * tankScale;
 
-  // ====== FROM URL (?config=...) ======
-  function tryLoadFromURL(){
-    try{
-      const u = new URL(location.href);
-      const raw = u.searchParams.get("config");
-      if(!raw) return null;
-      return JSON.parse(decodeURIComponent(raw));
-    }catch(_){ return null; }
-  }
+    // старт: нижний левый, но с отступом
+    const tank = {
+      x: 40,
+      y: innerHeight - tankH - 40,
+      w: tankW,
+      h: tankH,
+      dir: 'right',
+      speed: 220
+    };
 
-  // ====== DRAW ======
-  function drawCover(img){
-    if(!img) return;
-    const iw = img.naturalWidth, ih = img.naturalHeight;
-    if(!iw || !ih) return;
-    const scale = Math.max(W/iw, H/ih);
-    const dw = iw*scale, dh = ih*scale;
-    const dx = (W - dw)/2, dy = (H - dh)/2;
-    ctx.drawImage(img, dx, dy, dw, dh);
-  }
+    let boxes = placeBoxes(cfg, boxImg);
 
-  function drawBox(img, x,y,w,h){
-    if(img){
-      ctx.drawImage(img, x, y, w, h);
-    } else {
-      ctx.fillStyle = "rgba(255,255,255,.18)";
-      ctx.fillRect(x,y,w,h);
-      ctx.strokeStyle = "rgba(255,255,255,.35)";
-      ctx.strokeRect(x,y,w,h);
-    }
-  }
+    const bullets = [];
+    const keys = new Set();
 
-  // ====== LOOP ======
-  function tick(){
-    const sp = (CFG.tankSpeed || 2.2) * DPR;
-    let dx=0,dy=0;
-    if(keys.has("arrowleft") || keys.has("a")) dx -= sp;
-    if(keys.has("arrowright")|| keys.has("d")) dx += sp;
-    if(keys.has("arrowup")   || keys.has("w")) dy -= sp;
-    if(keys.has("arrowdown") || keys.has("s")) dy += sp;
+    addEventListener('keydown', (e)=>{
+      const k = e.key.toLowerCase();
+      if(['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d',' '].includes(k) || e.code==='Space'){
+        e.preventDefault();
+      }
+      if(e.code==='Space') keys.add('space'); else keys.add(k);
+    }, {passive:false});
 
-    if(dx || dy){
-      const len = Math.hypot(dx,dy) || 1;
-      tank.dirX = dx/len;
-      tank.dirY = dy/len;
+    addEventListener('keyup', (e)=>{
+      const k = e.key.toLowerCase();
+      if(e.code==='Space') keys.delete('space'); else keys.delete(k);
+    });
+
+    function shoot(){
+      const b = {x:tank.x+tank.w/2, y:tank.y+tank.h/2, r:5, vx:0, vy:0, life:1.3};
+      const sp = 520;
+      if(tank.dir==='left') b.vx = -sp;
+      if(tank.dir==='right') b.vx = sp;
+      if(tank.dir==='up') b.vy = -sp;
+      if(tank.dir==='down') b.vy = sp;
+      bullets.push(b);
+      aPlay(shotSnd);
     }
 
-    tank.x = clamp(tank.x + dx, 0, W - tank.w);
-    tank.y = clamp(tank.y + dy, 0, H - tank.h);
+    let shootCd = 0;
 
-    bullets.forEach(b => { b.x += b.vx; b.y += b.vy; });
-    bullets = bullets.filter(b => b.x>-30 && b.x<W+30 && b.y>-30 && b.y<H+30);
+    let last = performance.now();
+    function loop(now){
+      const dt = Math.min(0.033, (now-last)/1000);
+      last = now;
 
-    // collisions bullet-box
-    for(const b of bullets){
-      const br = {x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2};
-      for(const box of boxes){
-        if(!box.alive) continue;
-        if(rectsHit(br, box)){
-          box.alive = false;
-          b.x = -9999;
-          putRewardIntoSlot();
-          // ✅ звук попадания/взрыва
-          playSound(hitAudio);
-          break;
+      // движение
+      let vx=0, vy=0;
+      if(keys.has('arrowleft') || keys.has('a')) vx -= 1;
+      if(keys.has('arrowright')|| keys.has('d')) vx += 1;
+      if(keys.has('arrowup')   || keys.has('w')) vy -= 1;
+      if(keys.has('arrowdown') || keys.has('s')) vy += 1;
+
+      if(vx!==0 || vy!==0){
+        if(Math.abs(vx) > Math.abs(vy)) tank.dir = vx<0 ? 'left' : 'right';
+        else tank.dir = vy<0 ? 'up' : 'down';
+
+        const len = Math.hypot(vx,vy)||1;
+        tank.x += (vx/len)*tank.speed*dt;
+        tank.y += (vy/len)*tank.speed*dt;
+        tank.x = Math.max(0, Math.min(innerWidth - tank.w, tank.x));
+        tank.y = Math.max(60, Math.min(innerHeight - tank.h, tank.y));
+      }
+
+      // выстрел
+      shootCd -= dt;
+      if(keys.has('space') && shootCd<=0){
+        shoot();
+        shootCd = 0.22;
+      }
+
+      // пули
+      for(let i=bullets.length-1;i>=0;i--){
+        const b = bullets[i];
+        b.x += b.vx*dt;
+        b.y += b.vy*dt;
+        b.life -= dt;
+
+        // коллизия с ящиком
+        const br = {x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2};
+        for(const box of boxes){
+          if(!box.alive) continue;
+          if(rectsHit(br, box)){
+            box.alive = false;
+            b.life = 0;
+            aPlay(hitSnd);
+
+            // награда
+            if(cfg.items && cfg.items.length){
+              // берем следующую неиспользованную
+              const used = document.querySelectorAll('#rewards .slot img').length;
+              const item = cfg.items[Math.min(used, cfg.items.length-1)];
+              if(item && item.url) putReward(item.url);
+            }
+            break;
+          }
+        }
+
+        if(b.life<=0 || b.x<-50 || b.y<-50 || b.x>innerWidth+50 || b.y>innerHeight+50){
+          bullets.splice(i,1);
         }
       }
-    }
-    bullets = bullets.filter(b => b.x>-1000);
 
-    ctx.clearRect(0,0,W,H);
-    drawCover(IMG_FIELD);
-    ctx.fillStyle = "rgba(10,14,28,.18)";
-    ctx.fillRect(0,0,W,H);
+      // рендер
+      ctx.clearRect(0,0,innerWidth,innerHeight);
 
-    for(const box of boxes){
-      if(!box.alive) continue;
-      drawBox(IMG_BOX, box.x, box.y, box.w, box.h);
-    }
-
-    // tank mirror left
-    if (IMG_TANK) {
-      const goingLeft = tank.dirX < 0;
-      ctx.save();
-      if (goingLeft) {
-        ctx.translate(tank.x + tank.w, tank.y);
-        ctx.scale(-1, 1);
-        ctx.drawImage(IMG_TANK, 0, 0, tank.w, tank.h);
+      // фон
+      if(bgImg){
+        // cover
+        const sw = bgImg.width, sh = bgImg.height;
+        const rw = innerWidth/sw, rh = innerHeight/sh;
+        const r = Math.max(rw,rh);
+        const dw = sw*r, dh = sh*r;
+        ctx.drawImage(bgImg, (innerWidth-dw)/2, (innerHeight-dh)/2, dw, dh);
       } else {
-        ctx.drawImage(IMG_TANK, tank.x, tank.y, tank.w, tank.h);
+        // дефолт градиент
+        const g = ctx.createLinearGradient(0,0,0,innerHeight);
+        g.addColorStop(0,'#071229'); g.addColorStop(1,'#030815');
+        ctx.fillStyle=g; ctx.fillRect(0,0,innerWidth,innerHeight);
       }
+
+      // ящики
+      for(const box of boxes){
+        if(!box.alive) continue;
+        ctx.drawImage(boxImg, box.x, box.y, box.w, box.h);
+      }
+
+      // танк (повороты простые: отражение/поворот)
+      ctx.save();
+      ctx.translate(tank.x + tank.w/2, tank.y + tank.h/2);
+
+      if(tank.dir==='left'){
+        ctx.scale(-1,1);
+      } else if(tank.dir==='up'){
+        ctx.rotate(-Math.PI/2);
+      } else if(tank.dir==='down'){
+        ctx.rotate(Math.PI/2);
+      }
+      ctx.drawImage(tankImg, -tank.w/2, -tank.h/2, tank.w, tank.h);
       ctx.restore();
-    } else {
-      ctx.fillStyle = "rgba(255,255,255,.18)";
-      ctx.fillRect(tank.x,tank.y,tank.w,tank.h);
-      ctx.strokeStyle = "rgba(255,255,255,.35)";
-      ctx.strokeRect(tank.x,tank.y,tank.w,tank.h);
+
+      // пули
+      ctx.fillStyle='rgba(255,255,255,.9)';
+      for(const b of bullets){
+        ctx.beginPath();
+        ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+        ctx.fill();
+      }
+
+      requestAnimationFrame(loop);
     }
 
-    ctx.fillStyle = "rgba(255,240,220,.95)";
-    for(const b of bullets){
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
-      ctx.fill();
-    }
-
-    requestAnimationFrame(tick);
-  }
-
-  resize();
-  applyConfig( tryLoadFromURL() || DEFAULT_CONFIG );
-  tick();
+    requestAnimationFrame(loop);
+  })().catch(()=>{});
 })();
 </script>
 </body>
