@@ -1,23 +1,68 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Танковая миссия</title>
 <style>
-html,body{margin:0;height:100%;background:#000}
-canvas{display:block;cursor:pointer}
-#hud{position:fixed;top:10px;left:10px;display:flex;gap:8px;z-index:10}
-#hud img{width:40px;height:40px;object-fit:contain;background:rgba(255,255,255,.2);border-radius:8px}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+  /* панель наград */
+  #hud{
+    position:fixed;top:10px;left:10px;right:10px;
+    display:flex;gap:8px;align-items:center;flex-wrap:nowrap;overflow:auto;
+    z-index:10;padding:6px;border-radius:14px;
+    background:rgba(0,0,0,.25);backdrop-filter: blur(6px);
+  }
+  .pill{
+    display:flex;align-items:center;gap:8px;
+    background:rgba(255,255,255,.16);color:#fff;
+    padding:8px 10px;border-radius:12px;white-space:nowrap;
+    font-family:system-ui;font-weight:800
+  }
+  .pill img{width:30px;height:30px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,.12)}
+  /* кнопки управления (для Genially / тач) */
+  #pad{
+    position:fixed;left:12px;bottom:12px;z-index:20;
+    display:grid;grid-template-columns:56px 56px 56px;grid-template-rows:56px 56px 56px;
+    gap:8px;user-select:none;
+  }
+  .btn{
+    width:56px;height:56px;border-radius:14px;border:0;
+    background:rgba(255,255,255,.16);color:#fff;font-size:22px;font-weight:900;
+    backdrop-filter: blur(6px);
+  }
+  #fire{
+    position:fixed;right:12px;bottom:12px;z-index:20;
+    width:90px;height:90px;border-radius:20px;border:0;
+    background:rgba(255,120,0,.22);color:#fff;font-size:16px;font-weight:900;
+    backdrop-filter: blur(6px);
+  }
+  #hint{
+    position:fixed;top:10px;right:10px;z-index:30;
+    color:rgba(255,255,255,.75);font-family:system-ui;font-size:12px;
+    background:rgba(0,0,0,.25);padding:6px 10px;border-radius:12px
+  }
 </style>
 </head>
 <body>
 <div id="hud"></div>
+<div id="hint">Клик по игре → управление. Стрелки/WASD + Пробел</div>
+
+<div id="pad" aria-hidden="true">
+  <span></span><button class="btn" id="up">▲</button><span></span>
+  <button class="btn" id="left">◀</button><span></span><button class="btn" id="right">▶</button>
+  <span></span><button class="btn" id="down">▼</button><span></span>
+</div>
+<button id="fire">ВЫСТРЕЛ</button>
+
 <canvas id="c"></canvas>
 
 <script>
-const cfg = JSON.parse(decodeURIComponent(
-  new URLSearchParams(location.search).get("config") || "{}"
-));
+const qp = new URLSearchParams(location.search);
+const raw = qp.get("config") || "{}";
+let cfg = {};
+try{ cfg = JSON.parse(decodeURIComponent(raw)); }catch(e){ cfg = {}; }
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -27,92 +72,242 @@ function resize(){
   canvas.width = innerWidth;
   canvas.height = innerHeight;
 }
-resize(); addEventListener("resize",resize);
+resize(); addEventListener("resize", resize);
 
-let active=false;
-canvas.addEventListener("click",()=>{active=true;canvas.focus();});
+let active = false;
+function activate(){
+  active = true;
+  // важное для Genially: “активируем” управление кликом
+  hint.textContent = "Управление активно";
+  setTimeout(()=>hint.style.display="none", 1200);
+}
+const hint = document.getElementById("hint");
+canvas.addEventListener("pointerdown", activate, {passive:true});
 
-const tankImg=new Image(); tankImg.src=cfg.tankUrl;
-const boxImg=new Image(); boxImg.src=cfg.boxUrl;
-const bgImg=new Image(); if(cfg.bgUrl) bgImg.src=cfg.bgUrl;
+const tankImg = new Image(); tankImg.src = cfg.tankUrl || "";
+const boxImg  = new Image(); boxImg.src  = cfg.boxUrl  || "";
+const bgImg   = new Image(); if(cfg.bgUrl) bgImg.src = cfg.bgUrl;
 
-const shot = cfg.shotSound?new Audio(cfg.shotSound):null;
-const hit  = cfg.hitSound?new Audio(cfg.hitSound):null;
+const sndEngine = cfg.engineUrl ? new Audio(cfg.engineUrl) : null;
+const sndShot   = cfg.shotUrl   ? new Audio(cfg.shotUrl)   : null;
+const sndHit    = cfg.hitUrl    ? new Audio(cfg.hitUrl)    : null;
+if(sndEngine){
+  sndEngine.loop = true;
+  sndEngine.volume = 0.4;
+}
 
-const tank={x:40,y:0,w:100,h:70,speed:4};
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const baseTankW = 110, baseTankH = 70;
+const baseBoxS  = 80;
+
+const tank = {
+  x: 60,
+  y: 0,
+  w: baseTankW * clamp(+cfg.tankScale || 1, 0.5, 5),
+  h: baseTankH * clamp(+cfg.tankScale || 1, 0.5, 5),
+  speed: clamp(+cfg.tankSpeed || 4, 1, 10),
+  dir: "right"
+};
+
 function placeTank(){
   tank.y = canvas.height - tank.h - 30;
 }
 placeTank();
 
-const boxes=[];
-const size=80;
-for(let i=0;i<(cfg.boxCount||5);i++){
+const boxSize = baseBoxS * clamp(+cfg.boxScale || 1, 0.5, 5);
+const boxes = [];
+const count = clamp(Math.round(+cfg.boxCount || 7), 1, 15);
+const margin = 10;
+
+function rand(min,max){ return Math.random()*(max-min)+min; }
+
+// создаём ящики ТОЛЬКО внутри поля, с учётом размера
+for(let i=0;i<count;i++){
   boxes.push({
-    x:Math.random()*(canvas.width-size-40)+20,
-    y:Math.random()*(canvas.height-size-120)+60,
+    x: rand(margin, canvas.width - boxSize - margin),
+    y: rand(70, canvas.height - boxSize - margin),
+    alive: true
+  });
+}
+
+const keys = {};
+addEventListener("keydown", e=>{ keys[e.key] = true; if(!active) activate(); });
+addEventListener("keyup",   e=>{ keys[e.key] = false; });
+
+const pad = {
+  up:false,down:false,left:false,right:false,fire:false
+};
+
+function bindHold(btn, key){
+  const el = document.getElementById(btn);
+  el.addEventListener("pointerdown", e=>{ e.preventDefault(); activate(); pad[key]=true; }, {passive:false});
+  el.addEventListener("pointerup",   ()=> pad[key]=false);
+  el.addEventListener("pointerleave",()=> pad[key]=false);
+}
+bindHold("up","up");
+bindHold("down","down");
+bindHold("left","left");
+bindHold("right","right");
+document.getElementById("fire").addEventListener("pointerdown", e=>{
+  e.preventDefault(); activate(); shoot();
+},{passive:false});
+
+const bullets = [];
+const explosions = [];
+let rewardIndex = 0;
+
+function addHudReward(r){
+  const pill = document.createElement("div");
+  pill.className = "pill";
+  if(r.img){
+    const img = document.createElement("img");
+    img.src = r.img;
+    img.onerror = ()=> img.style.display="none";
+    pill.appendChild(img);
+  }
+  const text = document.createElement("div");
+  text.textContent = r.word || "";
+  pill.appendChild(text);
+  hud.appendChild(pill);
+}
+
+function shoot(){
+  if(!active) return;
+  // звук выстрела
+  if(sndShot){ try{ sndShot.currentTime=0; sndShot.play(); }catch(e){} }
+
+  const bx = tank.x + (tank.dir==="left" ? 0 : tank.w);
+  const by = tank.y + tank.h*0.55;
+
+  bullets.push({
+    x: bx,
+    y: by,
+    vx: (tank.dir==="left" ? -10 : 10),
     alive:true
   });
 }
 
-const keys={};
-addEventListener("keydown",e=>keys[e.key]=true);
-addEventListener("keyup",e=>keys[e.key]=false);
+function explode(x,y){
+  explosions.push({x,y,t:0});
+  if(sndHit){ try{ sndHit.currentTime=0; sndHit.play(); }catch(e){} }
+}
 
-const bullets=[];
+function rectHit(ax,ay,aw,ah,bx,by,bw,bh){
+  return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
+}
+
+let enginePlaying = false;
 
 function loop(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  if(cfg.bgUrl && bgImg.complete)
+  // фон
+  if(cfg.bgUrl && bgImg.complete){
     ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
+  }else{
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
 
-  boxes.forEach(b=>{
-    if(b.alive) ctx.drawImage(boxImg,b.x,b.y,size,size);
-  });
-
-  if(tankImg.complete)
-    ctx.drawImage(tankImg,tank.x,tank.y,tank.w,tank.h);
-
-  bullets.forEach((b,i)=>{
-    b.x+=8;
-    ctx.fillStyle="yellow";
-    ctx.fillRect(b.x,b.y,6,4);
-
-    boxes.forEach(box=>{
-      if(box.alive &&
-         b.x<box.x+size && b.x+6>box.x &&
-         b.y<box.y+size && b.y+4>box.y){
-          box.alive=false;
-          b.dead=true;
-          if(hit) hit.play();
-          if(cfg.rewards){
-            const r=cfg.rewards[hud.children.length];
-            if(r){
-              const img=new Image();img.src=r;
-              hud.appendChild(img);
-            }
-          }
-      }
-    });
-  });
-
-  bullets.filter(b=>!b.dead);
-
+  // движение танка
   if(active){
-    if(keys["ArrowLeft"]||keys["a"]) tank.x-=tank.speed;
-    if(keys["ArrowRight"]||keys["d"]) tank.x+=tank.speed;
-    if(keys["ArrowUp"]||keys["w"]) tank.y-=tank.speed;
-    if(keys["ArrowDown"]||keys["s"]) tank.y+=tank.speed;
+    const left  = keys["ArrowLeft"]||keys["a"]||pad.left;
+    const right = keys["ArrowRight"]||keys["d"]||pad.right;
+    const up    = keys["ArrowUp"]||keys["w"]||pad.up;
+    const down  = keys["ArrowDown"]||keys["s"]||pad.down;
 
-    tank.x=Math.max(0,Math.min(canvas.width-tank.w,tank.x));
-    tank.y=Math.max(60,Math.min(canvas.height-tank.h,tank.y));
+    const moving = left||right||up||down;
 
-    if(keys[" "]){
-      bullets.push({x:tank.x+tank.w,y:tank.y+tank.h/2});
-      if(shot) shot.play();
-      keys[" "]=false;
+    if(moving && sndEngine && !enginePlaying){
+      try{ sndEngine.play(); enginePlaying=true; }catch(e){}
     }
+    if(!moving && sndEngine && enginePlaying){
+      try{ sndEngine.pause(); }catch(e){}
+      enginePlaying=false;
+    }
+
+    if(left){ tank.x -= tank.speed; tank.dir="left"; }
+    if(right){ tank.x += tank.speed; tank.dir="right"; }
+    if(up){ tank.y -= tank.speed; }
+    if(down){ tank.y += tank.speed; }
+
+    // границы поля
+    tank.x = clamp(tank.x, 0, canvas.width - tank.w);
+    tank.y = clamp(tank.y, 70, canvas.height - tank.h);
+
+    // выстрел
+    if(keys[" "]){
+      keys[" "] = false;
+      shoot();
+    }
+  }
+
+  // рисуем ящики
+  boxes.forEach(b=>{
+    if(!b.alive) return;
+    if(boxImg.complete){
+      ctx.drawImage(boxImg, b.x, b.y, boxSize, boxSize);
+    }else{
+      ctx.fillStyle = "rgba(255,255,255,.25)";
+      ctx.fillRect(b.x,b.y,boxSize,boxSize);
+    }
+  });
+
+  // рисуем танк (флип влево)
+  if(tankImg.complete){
+    ctx.save();
+    if(tank.dir==="left"){
+      ctx.translate(tank.x + tank.w, tank.y);
+      ctx.scale(-1,1);
+      ctx.drawImage(tankImg, 0, 0, tank.w, tank.h);
+    }else{
+      ctx.drawImage(tankImg, tank.x, tank.y, tank.w, tank.h);
+    }
+    ctx.restore();
+  }else{
+    ctx.fillStyle="rgba(255,255,255,.25)";
+    ctx.fillRect(tank.x,tank.y,tank.w,tank.h);
+  }
+
+  // пули
+  for(const p of bullets){
+    if(!p.alive) continue;
+    p.x += p.vx;
+    ctx.fillStyle = "rgba(255,230,120,.95)";
+    ctx.fillRect(p.x,p.y,8,4);
+
+    // вылет за экран
+    if(p.x < -20 || p.x > canvas.width+20) p.alive=false;
+
+    // попадание по ящику
+    for(const b of boxes){
+      if(!b.alive) continue;
+      if(rectHit(p.x,p.y,8,4,b.x,b.y,boxSize,boxSize)){
+        b.alive=false;
+        p.alive=false;
+        explode(b.x+boxSize/2, b.y+boxSize/2);
+
+        // награда
+        const list = Array.isArray(cfg.rewards) ? cfg.rewards : [];
+        if(list[rewardIndex]){
+          addHudReward(list[rewardIndex]);
+          rewardIndex++;
+        }
+        break;
+      }
+    }
+  }
+
+  // взрывы (простой эффект)
+  for(const ex of explosions){
+    ex.t += 1;
+    const r = ex.t * 2.2;
+    ctx.beginPath();
+    ctx.arc(ex.x, ex.y, r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,180,60,${Math.max(0, 0.35 - ex.t/60)})`;
+    ctx.fill();
+  }
+  // чистим старые взрывы
+  for(let i=explosions.length-1;i>=0;i--){
+    if(explosions[i].t > 40) explosions.splice(i,1);
   }
 
   requestAnimationFrame(loop);
