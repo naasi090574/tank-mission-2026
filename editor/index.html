@@ -11,7 +11,7 @@
     }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    .app{position:fixed;inset:0;display:grid;grid-template-columns: 380px 1fr;gap:12px;padding:12px}
+    .app{position:fixed;inset:0;display:grid;grid-template-columns: 400px 1fr;gap:12px;padding:12px}
     .panel{
       background:var(--panel); border:1px solid var(--br); border-radius:var(--r);
       padding:12px; overflow:auto; backdrop-filter: blur(10px);
@@ -57,7 +57,8 @@
       <h3 class="h">Редактор «Танковая миссия»</h3>
 
       <div class="sec">
-        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Настройки: ящики и сложность</div>
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Ящики, сложность, размеры</div>
+
         <div class="row">
           <div>
             <label>Ящиков на поле (1–15)</label>
@@ -80,6 +81,17 @@
 
         <div class="row" style="margin-top:10px">
           <div>
+            <label>Размер танка (0.5–2.0)</label>
+            <input id="tankScale" type="number" step="0.1" min="0.5" max="2.0" value="1.0">
+          </div>
+          <div>
+            <label>Размер ящика (0.5–2.0)</label>
+            <input id="boxScale" type="number" step="0.1" min="0.5" max="2.0" value="1.0">
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div>
             <label>Скорость танка</label>
             <input id="tankSpeed" type="number" step="0.1" value="2.2">
           </div>
@@ -89,28 +101,26 @@
           </div>
         </div>
 
-        <div class="mini">Сложность меняет “насколько близко” могут стоять ящики.</div>
+        <div class="mini">Начальная точка танка теперь внизу слева (с отступом).</div>
       </div>
 
       <div class="sec">
-        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Картинки: танк, ящик, фон</div>
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Картинки (URL или загрузка)</div>
 
         <label>Танк (URL)</label>
         <input id="tankUrl" type="text" value="https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif">
-        <label>или загрузить файл танка (GIF/PNG)</label>
+        <label>или загрузить файл танка</label>
         <input id="tankFile" type="file" accept="image/*">
 
         <label>Ящик (URL)</label>
         <input id="boxUrl" type="text" value="https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png">
-        <label>или загрузить файл ящика (PNG)</label>
+        <label>или загрузить файл ящика</label>
         <input id="boxFile" type="file" accept="image/*">
 
         <label>Фон поля (URL)</label>
         <input id="fieldUrl" type="text" placeholder="можно оставить пустым">
         <label>или загрузить файл фона</label>
         <input id="fieldFile" type="file" accept="image/*">
-
-        <div class="mini">Если выбираешь файл — он сразу работает в предпросмотре.</div>
       </div>
 
       <div class="sec">
@@ -137,16 +147,16 @@
         <div style="height:10px"></div>
         <div class="items" id="items"></div>
 
-        <div class="mini">В игре слоты сверху = количеству ящиков. При попадании слот заполняется предметом.</div>
+        <div class="mini">Слоты сверху = числу ящиков. При попадании слот заполняется предметом.</div>
       </div>
 
       <div class="sec">
-        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Предпросмотр и вставка</div>
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Предпросмотр и Genially</div>
         <div class="btns">
           <button id="btnPreview">Обновить предпросмотр</button>
           <button id="btnCopy">Копировать iframe для Genially</button>
         </div>
-        <div class="mini">После настроек нажми “Обновить предпросмотр”.</div>
+        <div class="mini">Важно: iframe копируется с ПОЛНЫМ https-адресом (Genially не будет пустым).</div>
       </div>
     </div>
 
@@ -158,7 +168,6 @@
 <script>
 (() => {
   const el = (id) => document.getElementById(id);
-
   const state = { items: [] };
 
   const preview = el("preview");
@@ -191,6 +200,9 @@
     const difficulty = el("difficulty").value || "normal";
     const randomBoxes = !!el("randomBoxes").checked;
 
+    const tankScale = clamp(Number(el("tankScale").value || 1.0), 0.5, 2.0);
+    const boxScale  = clamp(Number(el("boxScale").value  || 1.0), 0.5, 2.0);
+
     const tankSpeed = Number(el("tankSpeed").value || 2.2);
     const bulletSpeed = Number(el("bulletSpeed").value || 6.5);
 
@@ -202,6 +214,8 @@
       boxCount,
       difficulty,
       randomBoxes,
+      tankScale,
+      boxScale,
       tankSpeed,
       bulletSpeed,
       tankUrl,
@@ -262,7 +276,6 @@
     preview.contentWindow.postMessage({ type:"TANK_MISSION_CONFIG", payload: cfg }, "*");
   }
 
-  // кнопки
   el("btnPreview").addEventListener("click", sendToPreview);
 
   el("addItem").addEventListener("click", async () => {
@@ -285,17 +298,20 @@
     sendToPreview();
   });
 
+  // ВАЖНО: iframe для Genially должен быть с ПОЛНЫМ https-URL
   el("btnCopy").addEventListener("click", async () => {
     const cfg = await collectConfig();
     const encoded = encodeURIComponent(JSON.stringify(cfg));
-    const src = `../game/index.html?config=${encoded}`;
+
+    const src = `https://naasi090574.github.io/tank-mission-2026/game/index.html?config=${encoded}`;
     const iframe = `<iframe style="border:0;width:100%;height:100%;" src="${src}"></iframe>`;
+
     await navigator.clipboard.writeText(iframe);
     alert("Готово! iframe скопирован.");
   });
 
-  // авто-обновление (чтобы было удобно)
-  ["boxCount","difficulty","randomBoxes","tankSpeed","bulletSpeed","tankUrl","boxUrl","fieldUrl"].forEach(id => {
+  // авто-обновление
+  ["boxCount","difficulty","randomBoxes","tankScale","boxScale","tankSpeed","bulletSpeed","tankUrl","boxUrl","fieldUrl"].forEach(id => {
     const node = el(id);
     node.addEventListener(node.type === "checkbox" ? "change" : "input", () => {
       clearTimeout(window.__t);
@@ -309,7 +325,6 @@
 
   preview.addEventListener("load", sendToPreview);
 
-  // старт
   renderItems();
 })();
 </script>
