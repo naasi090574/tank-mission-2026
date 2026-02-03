@@ -62,6 +62,11 @@
     randomBoxes: true,           // рандомно выставлять ящики
     tankSpeed: 2.2,
     bulletSpeed: 6.5,
+
+    // НОВОЕ: масштаб (размер)
+    tankScale: 1.0,              // 0.5..2.0 (задаёт размер танка)
+    boxScale: 1.0,               // 0.5..2.0 (задаёт размер ящиков)
+
     tankUrl: "https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif",
     boxUrl:  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
     fieldUrl: "",
@@ -140,14 +145,14 @@
     if (!slots.length) return;
 
     const i = rewardIndex;
-    if (i >= slots.length) return; // места нет
+    if (i >= slots.length) return;
     rewardIndex++;
 
     const items = Array.isArray(CFG.items) ? CFG.items : [];
     const slot = slots[i];
     slot.innerHTML = ""; // очищаем
 
-    // если предметов нет — слот останется пустым (без звёзд)
+    // если предметов нет — слот пустой
     if (!items.length) return;
 
     const item = items[(i) % items.length];
@@ -159,26 +164,43 @@
     }
   }
 
-  // ====== СЛОЖНОСТЬ влияет на разброс ящиков ======
+  // ====== СЛОЖНОСТЬ влияет на расстояние ящиков ======
   function getMinDistanceByDifficulty(){
-    if (CFG.difficulty === "easy") return 140;
-    if (CFG.difficulty === "hard") return 60;
-    return 100; // normal
+    if (CFG.difficulty === "easy") return 150;
+    if (CFG.difficulty === "hard") return 70;
+    return 110;
+  }
+
+  // ====== Поставить танк внизу слева с отступом ======
+  function placeTankStart(){
+    const pad = 28 * DPR; // отступ от краёв
+    tank.x = pad;
+    tank.y = H - tank.h - pad;
   }
 
   function spawnBoxes(){
     boxes = [];
     const count = clamp(Math.floor(CFG.boxCount||7), 1, 15);
 
-    tank.x = 120 * DPR; tank.y = 140 * DPR;
-    tank.w = 84 * DPR;  tank.h = 56 * DPR;
+    // размеры по масштабу
+    const tankBaseW = 84 * DPR, tankBaseH = 56 * DPR;
+    const boxBase = 64 * DPR;
+
+    const tScale = clamp(Number(CFG.tankScale || 1), 0.5, 2.0);
+    const bScale = clamp(Number(CFG.boxScale  || 1), 0.5, 2.0);
+
+    tank.w = tankBaseW * tScale;
+    tank.h = tankBaseH * tScale;
+
+    const bw = boxBase * bScale;
+    const bh = boxBase * bScale;
+
+    placeTankStart();
 
     const pad = 30 * DPR;
-    const bw = 64 * DPR;
-    const bh = 64 * DPR;
     const minDist = getMinDistanceByDifficulty() * DPR;
 
-    const tries = 600;
+    const tries = 700;
 
     for(let i=0;i<count;i++){
       let placed=false;
@@ -188,7 +210,10 @@
         const box = {x,y,w:bw,h:bh,alive:true};
 
         // не рядом с танком
-        const nearTank = rectsHit({x:x-minDist,y:y-minDist,w:bw+minDist*2,h:bh+minDist*2}, tank);
+        const nearTank = rectsHit(
+          {x:x-minDist,y:y-minDist,w:bw+minDist*2,h:bh+minDist*2},
+          {x:tank.x, y:tank.y, w:tank.w, h:tank.h}
+        );
         if (nearTank) continue;
 
         // не слишком близко к другим ящикам
@@ -237,8 +262,6 @@
     CFG = { ...DEFAULT_CONFIG, ...newCfg };
     CFG.boxCount = clamp(Math.floor(CFG.boxCount||7), 1, 15);
 
-    // если randomBoxes выключен — всё равно оставим рандом (пока),
-    // потому что у тебя нет ручного размещения. Но флажок сохранён для будущего.
     [IMG_TANK, IMG_BOX, IMG_FIELD] = await Promise.all([
       loadImg(CFG.tankUrl),
       loadImg(CFG.boxUrl),
@@ -318,8 +341,8 @@
         if(!box.alive) continue;
         if(rectsHit(br, box)){
           box.alive = false;
-          b.x = -9999; // убрать пулю
-          putRewardIntoSlot(); // <-- предмет в слот
+          b.x = -9999;
+          putRewardIntoSlot();
           break;
         }
       }
@@ -329,18 +352,16 @@
     // draw
     ctx.clearRect(0,0,W,H);
 
-    // background
     drawCover(IMG_FIELD);
     ctx.fillStyle = "rgba(10,14,28,.18)";
     ctx.fillRect(0,0,W,H);
 
-    // boxes
     for(const box of boxes){
       if(!box.alive) continue;
       drawBox(IMG_BOX, box.x, box.y, box.w, box.h);
     }
 
-    // tank with left/right turn (mirror)
+    // tank: вправо норм, влево зеркалим
     if (IMG_TANK) {
       const goingLeft = tank.dirX < 0;
       ctx.save();
@@ -359,7 +380,6 @@
       ctx.strokeRect(tank.x,tank.y,tank.w,tank.h);
     }
 
-    // bullets
     ctx.fillStyle = "rgba(255,240,220,.95)";
     for(const b of bullets){
       ctx.beginPath();
@@ -370,7 +390,6 @@
     requestAnimationFrame(tick);
   }
 
-  // START
   resize();
   applyConfig( tryLoadFromURL() || DEFAULT_CONFIG );
   tick();
