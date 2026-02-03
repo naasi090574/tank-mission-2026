@@ -1,62 +1,328 @@
-<!-- editor/index.html -->
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<title>Редактор — Танковая миссия</title>
-<style>
-body{margin:0;background:#0a1020;color:#d9ecff;font-family:system-ui}
-.app{display:grid;grid-template-columns:380px 1fr;height:100vh;gap:10px;padding:10px}
-.panel{background:#111a33;padding:12px;border-radius:14px;overflow:auto}
-label{font-size:12px;color:#9bb7d6}
-input,select,button{width:100%;margin-top:6px;padding:8px;border-radius:10px}
-iframe{width:100%;height:100%;border:0;border-radius:14px}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Редактор — Танковая миссия</title>
+  <style>
+    :root{
+      --bg:#0a1020; --panel:rgba(14,22,40,.72); --br:rgba(255,255,255,.10);
+      --txt:#d9ecff; --mut:#9bb7d6; --r:18px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .app{position:fixed;inset:0;display:grid;grid-template-columns: 420px 1fr;gap:12px;padding:12px}
+    .panel{
+      background:var(--panel); border:1px solid var(--br); border-radius:var(--r);
+      padding:12px; overflow:auto; backdrop-filter: blur(10px);
+    }
+    .preview{
+      background:rgba(10,16,32,.65); border:1px solid var(--br); border-radius:var(--r);
+      overflow:hidden; position:relative;
+    }
+    .h{font-weight:900;margin:0 0 10px 0}
+    .sec{padding:10px;border-radius:14px;border:1px solid var(--br);background:rgba(255,255,255,.04);margin-bottom:10px}
+    label{display:block;font-size:12px;color:var(--mut);margin:8px 0 6px}
+    input[type="text"], input[type="number"], select{
+      width:100%; padding:10px 10px; border-radius:12px; border:1px solid var(--br);
+      background:rgba(0,0,0,.22); color:var(--txt); outline:none;
+    }
+    input[type="file"]{width:100%}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+    button{
+      padding:10px 12px;border-radius:12px;border:1px solid var(--br);
+      background:rgba(31,59,107,.65);color:var(--txt);cursor:pointer;font-weight:800;
+      width:auto;
+    }
+    button.secondary{background:rgba(255,255,255,.06)}
+    .mini{font-size:12px;color:rgba(210,230,255,.72);margin-top:6px;line-height:1.35}
+    .items{display:flex;flex-direction:column;gap:8px}
+    .item{
+      display:grid;grid-template-columns:60px 1fr 34px;gap:8px;align-items:center;
+      padding:8px;border:1px solid var(--br);border-radius:14px;background:rgba(0,0,0,.18)
+    }
+    .thumb{
+      width:60px;height:46px;border-radius:12px;border:1px solid var(--br);
+      background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;overflow:hidden;
+    }
+    .thumb img{max-width:100%;max-height:100%}
+    iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent}
+    .check{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .check input{width:auto}
+  </style>
 </head>
 <body>
+  <div class="app">
+    <div class="panel">
+      <h3 class="h">Редактор «Танковая миссия»</h3>
 
-<div class="app">
-<div class="panel">
-  <label>Ящиков (1–15)</label>
-  <input id="boxCount" type="number" min="1" max="15" value="7">
+      <div class="sec">
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Настройки: ящики, сложность, размеры</div>
+        <div class="row">
+          <div>
+            <label>Ящиков на поле (1–15)</label>
+            <input id="boxCount" type="number" min="1" max="15" value="7">
+          </div>
+          <div>
+            <label>Сложность</label>
+            <select id="difficulty">
+              <option value="easy">Лёгкая</option>
+              <option value="normal" selected>Нормальная</option>
+              <option value="hard">Сложная</option>
+            </select>
+          </div>
+        </div>
 
-  <label>Размер танка (0.5–5)</label>
-  <input id="tankScale" type="number" min="0.5" max="5" step="0.1" value="1">
+        <div class="check">
+          <input id="randomBoxes" type="checkbox" checked>
+          <label for="randomBoxes" style="margin:0;color:rgba(210,230,255,.85)">Ящики ставить рандомно</label>
+        </div>
 
-  <label>Размер ящика (0.5–5)</label>
-  <input id="boxScale" type="number" min="0.5" max="5" step="0.1" value="1">
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label>Размер танка (0.5–5.0)</label>
+            <input id="tankScale" type="number" step="0.1" min="0.5" max="5.0" value="1.0">
+          </div>
+          <div>
+            <label>Размер ящика (0.5–5.0)</label>
+            <input id="boxScale" type="number" step="0.1" min="0.5" max="5.0" value="1.0">
+          </div>
+        </div>
 
-  <button onclick="send()">Обновить предпросмотр</button>
-  <button onclick="copy()">Копировать iframe</button>
-</div>
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label>Скорость танка</label>
+            <input id="tankSpeed" type="number" step="0.1" value="2.2">
+          </div>
+          <div>
+            <label>Скорость пули</label>
+            <input id="bulletSpeed" type="number" step="0.1" value="6.5">
+          </div>
+        </div>
 
-<iframe id="prev"></iframe>
-</div>
+        <div class="mini">Танк стартует внизу слева (с отступом). Поворот влево/вправо работает.</div>
+      </div>
+
+      <div class="sec">
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Картинки: танк, ящик, фон</div>
+
+        <label>Танк (URL)</label>
+        <input id="tankUrl" type="text" value="https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif">
+        <label>или загрузить файл танка (GIF/PNG)</label>
+        <input id="tankFile" type="file" accept="image/*">
+
+        <label>Ящик (URL)</label>
+        <input id="boxUrl" type="text" value="https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png">
+        <label>или загрузить файл ящика (PNG)</label>
+        <input id="boxFile" type="file" accept="image/*">
+
+        <label>Фон поля (URL)</label>
+        <input id="fieldUrl" type="text" placeholder="можно оставить пустым">
+        <label>или загрузить файл фона</label>
+        <input id="fieldFile" type="file" accept="image/*">
+
+        <div class="mini">Файлы превращаются в “встроенные ссылки”, поэтому предпросмотр работает сразу.</div>
+      </div>
+
+      <div class="sec">
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Предметы (награды)</div>
+
+        <div class="row">
+          <div>
+            <label>Слово (необязательно)</label>
+            <input id="newLabel" type="text" placeholder="например: СА, СО, СУ">
+          </div>
+          <div>
+            <label>URL картинки предмета</label>
+            <input id="newImgUrl" type="text" placeholder="https://...png">
+          </div>
+        </div>
+        <label>или файл картинки предмета</label>
+        <input id="newImgFile" type="file" accept="image/*">
+
+        <div class="btns">
+          <button id="addItem" class="secondary">Добавить предмет</button>
+          <button id="clearItems" class="secondary">Очистить предметы</button>
+        </div>
+
+        <div style="height:10px"></div>
+        <div class="items" id="items"></div>
+
+        <div class="mini">В игре при попадании в ящик предмет появляется сверху.</div>
+      </div>
+
+      <div class="sec">
+        <div class="h" style="font-size:13px;margin:0 0 8px 0;">Предпросмотр и Genially</div>
+        <div class="btns">
+          <button id="btnPreview">Обновить предпросмотр</button>
+          <button id="btnCopy">Копировать iframe для Genially</button>
+        </div>
+        <div class="mini">iframe копируется с ПОЛНЫМ https-адресом — Genially не будет пустым.</div>
+      </div>
+    </div>
+
+    <div class="preview">
+      <iframe id="preview" title="предпросмотр игры"></iframe>
+    </div>
+  </div>
 
 <script>
-const prev=document.getElementById("prev");
-prev.src="../game/index.html";
+(() => {
+  const el = (id) => document.getElementById(id);
+  const state = { items: [] };
 
-function cfg(){
-  return {
-    boxCount:+boxCount.value,
-    tankScale:+tankScale.value,
-    boxScale:+boxScale.value
-  };
-}
+  const preview = el("preview");
+  preview.src = "../game/index.html";
 
-function send(){
-  prev.contentWindow.postMessage({type:"TANK_MISSION_CONFIG",payload:cfg()},"*");
-}
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 
-function copy(){
-  const c=encodeURIComponent(JSON.stringify(cfg()));
-  const url=`https://naasi090574.github.io/tank-mission-2026/game/index.html?config=${c}`;
-  navigator.clipboard.writeText(`<iframe style="width:100%;height:100%;border:0" src="${url}"></iframe>`);
-  alert("iframe скопирован");
-}
+  function fileToDataURL(file){
+    return new Promise((resolve) => {
+      if(!file) return resolve("");
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result || ""));
+      r.onerror = () => resolve("");
+      r.readAsDataURL(file);
+    });
+  }
 
-prev.onload=send;
+  async function resolveImage(urlId, fileId){
+    const url = (el(urlId).value || "").trim();
+    const file = el(fileId).files && el(fileId).files[0];
+    if (file) {
+      const data = await fileToDataURL(file);
+      if (data) return data;
+    }
+    return url;
+  }
+
+  async function collectConfig(){
+    const boxCount = clamp(Number(el("boxCount").value || 7), 1, 15);
+    const difficulty = el("difficulty").value || "normal";
+    const randomBoxes = !!el("randomBoxes").checked;
+
+    const tankScale = clamp(Number(el("tankScale").value || 1.0), 0.5, 5.0);
+    const boxScale  = clamp(Number(el("boxScale").value  || 1.0), 0.5, 5.0);
+
+    const tankSpeed = Number(el("tankSpeed").value || 2.2);
+    const bulletSpeed = Number(el("bulletSpeed").value || 6.5);
+
+    const tankUrl = await resolveImage("tankUrl","tankFile");
+    const boxUrl  = await resolveImage("boxUrl","boxFile");
+    const fieldUrl = await resolveImage("fieldUrl","fieldFile");
+
+    return {
+      boxCount,
+      difficulty,
+      randomBoxes,
+      tankScale,
+      boxScale,
+      tankSpeed,
+      bulletSpeed,
+      tankUrl,
+      boxUrl,
+      fieldUrl,
+      items: state.items.slice()
+    };
+  }
+
+  function renderItems(){
+    const wrap = el("items");
+    wrap.innerHTML = "";
+
+    state.items.forEach((it, idx) => {
+      const row = document.createElement("div");
+      row.className = "item";
+
+      const th = document.createElement("div");
+      th.className = "thumb";
+      if(it.img){
+        const img = document.createElement("img");
+        img.src = it.img;
+        img.alt = it.label || "item";
+        th.appendChild(img);
+      } else {
+        th.textContent = "—";
+        th.style.color = "rgba(255,255,255,.6)";
+      }
+
+      const info = document.createElement("div");
+      info.innerHTML = `
+        <div style="font-weight:900;font-size:13px">${it.label ? it.label : "без слова"}</div>
+        <div style="font-size:12px;color:rgba(210,230,255,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${it.img ? it.img : "без картинки"}
+        </div>
+      `;
+
+      const del = document.createElement("button");
+      del.textContent = "✕";
+      del.className = "secondary";
+      del.style.padding = "8px 10px";
+      del.onclick = () => {
+        state.items.splice(idx,1);
+        renderItems();
+        sendToPreview();
+      };
+
+      row.appendChild(th);
+      row.appendChild(info);
+      row.appendChild(del);
+      wrap.appendChild(row);
+    });
+  }
+
+  async function sendToPreview(){
+    const cfg = await collectConfig();
+    if(!preview.contentWindow) return;
+    preview.contentWindow.postMessage({ type:"TANK_MISSION_CONFIG", payload: cfg }, "*");
+  }
+
+  el("btnPreview").addEventListener("click", sendToPreview);
+
+  el("addItem").addEventListener("click", async () => {
+    const label = (el("newLabel").value || "").trim();
+    const url = (el("newImgUrl").value || "").trim();
+    const file = el("newImgFile").files && el("newImgFile").files[0];
+    const img = file ? await fileToDataURL(file) : url;
+
+    state.items.push({ label, img });
+    el("newLabel").value = "";
+    el("newImgUrl").value = "";
+    el("newImgFile").value = "";
+    renderItems();
+    sendToPreview();
+  });
+
+  el("clearItems").addEventListener("click", () => {
+    state.items = [];
+    renderItems();
+    sendToPreview();
+  });
+
+  // ✅ правильный iframe для Genially (полный адрес)
+  el("btnCopy").addEventListener("click", async () => {
+    const cfg = await collectConfig();
+    const encoded = encodeURIComponent(JSON.stringify(cfg));
+    const src = `https://naasi090574.github.io/tank-mission-2026/game/index.html?config=${encoded}`;
+    const iframe = `<iframe style="border:0;width:100%;height:100%;" src="${src}"></iframe>`;
+    await navigator.clipboard.writeText(iframe);
+    alert("Готово! iframe скопирован.");
+  });
+
+  // авто-обновление
+  ["boxCount","difficulty","randomBoxes","tankScale","boxScale","tankSpeed","bulletSpeed","tankUrl","boxUrl","fieldUrl"].forEach(id => {
+    const node = el(id);
+    node.addEventListener(node.type === "checkbox" ? "change" : "input", () => {
+      clearTimeout(window.__t);
+      window.__t = setTimeout(sendToPreview, 150);
+    });
+  });
+  ["tankFile","boxFile","fieldFile"].forEach(id => el(id).addEventListener("change", sendToPreview));
+
+  preview.addEventListener("load", sendToPreview);
+  renderItems();
+})();
 </script>
 </body>
 </html>
