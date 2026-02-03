@@ -25,7 +25,7 @@
       display:flex;align-items:center;justify-content:center;
       flex:0 0 auto; position:relative;
     }
-    .slot img{max-width:80%;max-height:80%;image-rendering:auto}
+    .slot img{max-width:82%;max-height:82%}
     #hint{color:rgba(210,230,255,.75);font-size:12px;white-space:nowrap}
     #stage{position:relative;flex:1}
     canvas{position:absolute;inset:0;width:100%;height:100%}
@@ -55,20 +55,22 @@
 
 <script>
 (() => {
-  // --- DEFAULTS ---
+  // ====== НАСТРОЙКИ ПО УМОЛЧАНИЮ ======
   const DEFAULT_CONFIG = {
-    boxCount: 7,               // 1..15
-    tankSpeed: 2.2,            // скорость
+    boxCount: 7,                 // 1..15
+    difficulty: "normal",        // easy | normal | hard
+    randomBoxes: true,           // рандомно выставлять ящики
+    tankSpeed: 2.2,
     bulletSpeed: 6.5,
     tankUrl: "https://img.genially.com/66f849d0f7b39c0016fdd814/552d49a1-b37f-40f1-a992-18c2aa55ed84.gif",
     boxUrl:  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
     fieldUrl: "",
-    items: [] // [{label:"", img:"url/data:"}, ...]
+    items: [] // [{label:"", img:"url или data:"}, ...]
   };
 
   let CFG = structuredClone(DEFAULT_CONFIG);
 
-  // --- UI ---
+  // ====== UI ======
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   const bar = document.getElementById("bar");
@@ -78,10 +80,10 @@
     toast.textContent = text;
     toast.style.display = "block";
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(()=>toast.style.display="none", 1400);
+    showToast._t = setTimeout(()=>toast.style.display="none", 1200);
   }
 
-  // --- Resize ---
+  // ====== RESIZE ======
   let W=0,H=0, DPR=1;
   function resize(){
     DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -94,7 +96,7 @@
   new ResizeObserver(resize).observe(canvas);
   window.addEventListener("resize", resize);
 
-  // --- Assets loader ---
+  // ====== ASSETS ======
   function loadImg(url){
     return new Promise((resolve) => {
       if (!url) return resolve(null);
@@ -108,7 +110,7 @@
 
   let IMG_TANK=null, IMG_BOX=null, IMG_FIELD=null;
 
-  // --- Game state ---
+  // ====== STATE ======
   const keys = new Set();
   let tank = { x: 120, y: 120, w: 72, h: 48, dirX:1, dirY:0 };
   let bullets = []; // {x,y,vx,vy,r}
@@ -116,25 +118,68 @@
   let rewardIndex = 0;
 
   function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
-
   function rectsHit(a,b){
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  // ====== HUD: слоты = количеству ящиков ======
+  function buildSlots(){
+    bar.innerHTML = "";
+    const n = clamp(Math.floor(CFG.boxCount||7), 1, 15);
+    for(let i=0;i<n;i++){
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      slot.dataset.i = String(i);
+      bar.appendChild(slot);
+    }
+    rewardIndex = 0;
+  }
+
+  function putRewardIntoSlot(){
+    const slots = bar.querySelectorAll(".slot");
+    if (!slots.length) return;
+
+    const i = rewardIndex;
+    if (i >= slots.length) return; // места нет
+    rewardIndex++;
+
+    const items = Array.isArray(CFG.items) ? CFG.items : [];
+    const slot = slots[i];
+    slot.innerHTML = ""; // очищаем
+
+    // если предметов нет — слот останется пустым (без звёзд)
+    if (!items.length) return;
+
+    const item = items[(i) % items.length];
+    if (item && item.img) {
+      const im = document.createElement("img");
+      im.src = item.img;
+      im.alt = item.label || "предмет";
+      slot.appendChild(im);
+    }
+  }
+
+  // ====== СЛОЖНОСТЬ влияет на разброс ящиков ======
+  function getMinDistanceByDifficulty(){
+    if (CFG.difficulty === "easy") return 140;
+    if (CFG.difficulty === "hard") return 60;
+    return 100; // normal
   }
 
   function spawnBoxes(){
     boxes = [];
     const count = clamp(Math.floor(CFG.boxCount||7), 1, 15);
 
-    // зоны
-    const pad = 30 * DPR;
-    const bw = 64 * DPR;
-    const bh = 64 * DPR;
-
-    // старт танка — сверху слева
     tank.x = 120 * DPR; tank.y = 140 * DPR;
     tank.w = 84 * DPR;  tank.h = 56 * DPR;
 
-    const tries = 400;
+    const pad = 30 * DPR;
+    const bw = 64 * DPR;
+    const bh = 64 * DPR;
+    const minDist = getMinDistanceByDifficulty() * DPR;
+
+    const tries = 600;
+
     for(let i=0;i<count;i++){
       let placed=false;
       for(let t=0;t<tries && !placed;t++){
@@ -142,14 +187,14 @@
         const y = Math.random()*(H - bh - pad*2) + pad;
         const box = {x,y,w:bw,h:bh,alive:true};
 
-        // не ставим слишком близко к танку
-        const nearTank = rectsHit({x:x-80*DPR,y:y-80*DPR,w:bw+160*DPR,h:bh+160*DPR}, tank);
+        // не рядом с танком
+        const nearTank = rectsHit({x:x-minDist,y:y-minDist,w:bw+minDist*2,h:bh+minDist*2}, tank);
         if (nearTank) continue;
 
-        // не перекрываем другие ящики
+        // не слишком близко к другим ящикам
         let ok=true;
         for(const b of boxes){
-          if (rectsHit({x:x-20*DPR,y:y-20*DPR,w:bw+40*DPR,h:bh+40*DPR}, b)) { ok=false; break; }
+          if (rectsHit({x:x-minDist/2,y:y-minDist/2,w:bw+minDist,h:bh+minDist}, b)) { ok=false; break; }
         }
         if(!ok) continue;
 
@@ -160,56 +205,25 @@
     showToast(`Ящики: ${boxes.length}`);
   }
 
-  function resetHUD(){
-    bar.innerHTML = "";
-    rewardIndex = 0;
-  }
-
-  function addReward(){
-    const slot = document.createElement("div");
-    slot.className = "slot";
-
-    const items = Array.isArray(CFG.items) ? CFG.items : [];
-    const item = items.length ? items[rewardIndex % items.length] : null;
-    rewardIndex++;
-
-    if(item && item.img){
-      const im = document.createElement("img");
-      im.src = item.img;
-      im.alt = item.label || "предмет";
-      slot.appendChild(im);
-    } else {
-      // если предметов нет — просто точка
-      slot.textContent = "★";
-      slot.style.color = "rgba(240,255,255,.8)";
-      slot.style.fontWeight = "800";
-      slot.style.fontSize = "18px";
-    }
-
-    bar.appendChild(slot);
-    bar.scrollLeft = bar.scrollWidth;
-  }
-
   function shoot(){
     const speed = (CFG.bulletSpeed || 6.5) * DPR;
-    const dir = {x: tank.dirX, y: tank.dirY};
-    // если никуда не “смотрим”, по умолчанию вправо
-    if(dir.x===0 && dir.y===0) dir.x=1;
+    let dx = tank.dirX, dy = tank.dirY;
+    if(dx===0 && dy===0) dx = 1;
 
     const r = 5 * DPR;
     bullets.push({
       x: tank.x + tank.w/2,
       y: tank.y + tank.h/2,
-      vx: dir.x * speed,
-      vy: dir.y * speed,
+      vx: dx * speed,
+      vy: dy * speed,
       r
     });
   }
 
-  // --- Controls ---
+  // ====== CONTROLS ======
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
-    if (["arrowup","arrowdown","arrowleft","arrowright","w","a","s","d"," "].includes(k) || [" "].includes(e.key)) e.preventDefault();
+    if (["arrowup","arrowdown","arrowleft","arrowright","w","a","s","d"," "].includes(k) || e.key===" ") e.preventDefault();
     if (k === " ") shoot();
     keys.add(k);
   }, {passive:false});
@@ -218,29 +232,31 @@
     keys.delete(e.key.toLowerCase());
   });
 
-  // --- Apply config ---
+  // ====== APPLY CONFIG ======
   async function applyConfig(newCfg){
     CFG = { ...DEFAULT_CONFIG, ...newCfg };
     CFG.boxCount = clamp(Math.floor(CFG.boxCount||7), 1, 15);
 
+    // если randomBoxes выключен — всё равно оставим рандом (пока),
+    // потому что у тебя нет ручного размещения. Но флажок сохранён для будущего.
     [IMG_TANK, IMG_BOX, IMG_FIELD] = await Promise.all([
       loadImg(CFG.tankUrl),
       loadImg(CFG.boxUrl),
       loadImg(CFG.fieldUrl)
     ]);
 
-    resetHUD();
+    buildSlots();
     spawnBoxes();
   }
 
-  // --- Message from editor (live preview) ---
+  // ====== FROM EDITOR ======
   window.addEventListener("message", (e) => {
     const d = e.data;
     if(!d || d.type !== "TANK_MISSION_CONFIG") return;
     applyConfig(d.payload || {});
   });
 
-  // --- Also allow config in URL (?config=...) ---
+  // ====== FROM URL (?config=...) ======
   function tryLoadFromURL(){
     try{
       const u = new URL(location.href);
@@ -250,7 +266,7 @@
     }catch(_){ return null; }
   }
 
-  // --- Render helpers ---
+  // ====== DRAW HELPERS ======
   function drawCover(img){
     if(!img) return;
     const iw = img.naturalWidth, ih = img.naturalHeight;
@@ -261,7 +277,7 @@
     ctx.drawImage(img, dx, dy, dw, dh);
   }
 
-  function drawSprite(img, x,y,w,h){
+  function drawBox(img, x,y,w,h){
     if(img){
       ctx.drawImage(img, x, y, w, h);
     } else {
@@ -272,7 +288,7 @@
     }
   }
 
-  // --- Game loop ---
+  // ====== LOOP ======
   function tick(){
     // move tank
     const sp = (CFG.tankSpeed || 2.2) * DPR;
@@ -283,7 +299,6 @@
     if(keys.has("arrowdown") || keys.has("s")) dy += sp;
 
     if(dx || dy){
-      // направление “куда едем” = “куда смотрим”
       const len = Math.hypot(dx,dy) || 1;
       tank.dirX = dx/len;
       tank.dirY = dy/len;
@@ -292,7 +307,7 @@
     tank.x = clamp(tank.x + dx, 0, W - tank.w);
     tank.y = clamp(tank.y + dy, 0, H - tank.h);
 
-    // move bullets
+    // bullets
     bullets.forEach(b => { b.x += b.vx; b.y += b.vy; });
     bullets = bullets.filter(b => b.x>-30 && b.x<W+30 && b.y>-30 && b.y<H+30);
 
@@ -304,7 +319,7 @@
         if(rectsHit(br, box)){
           box.alive = false;
           b.x = -9999; // убрать пулю
-          addReward();
+          putRewardIntoSlot(); // <-- предмет в слот
           break;
         }
       }
@@ -316,19 +331,33 @@
 
     // background
     drawCover(IMG_FIELD);
-
-    // slight overlay for readability
     ctx.fillStyle = "rgba(10,14,28,.18)";
     ctx.fillRect(0,0,W,H);
 
     // boxes
     for(const box of boxes){
       if(!box.alive) continue;
-      drawSprite(IMG_BOX, box.x, box.y, box.w, box.h);
+      drawBox(IMG_BOX, box.x, box.y, box.w, box.h);
     }
 
-    // tank (без поворота, просто спрайт)
-    drawSprite(IMG_TANK, tank.x, tank.y, tank.w, tank.h);
+    // tank with left/right turn (mirror)
+    if (IMG_TANK) {
+      const goingLeft = tank.dirX < 0;
+      ctx.save();
+      if (goingLeft) {
+        ctx.translate(tank.x + tank.w, tank.y);
+        ctx.scale(-1, 1);
+        ctx.drawImage(IMG_TANK, 0, 0, tank.w, tank.h);
+      } else {
+        ctx.drawImage(IMG_TANK, tank.x, tank.y, tank.w, tank.h);
+      }
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "rgba(255,255,255,.18)";
+      ctx.fillRect(tank.x,tank.y,tank.w,tank.h);
+      ctx.strokeStyle = "rgba(255,255,255,.35)";
+      ctx.strokeRect(tank.x,tank.y,tank.w,tank.h);
+    }
 
     // bullets
     ctx.fillStyle = "rgba(255,240,220,.95)";
@@ -341,7 +370,7 @@
     requestAnimationFrame(tick);
   }
 
-  // --- start ---
+  // START
   resize();
   applyConfig( tryLoadFromURL() || DEFAULT_CONFIG );
   tick();
