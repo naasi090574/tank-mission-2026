@@ -3,234 +3,308 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Tank Mission</title>
+<title>Танковая миссия — игра</title>
 <style>
-  html,body{margin:0;height:100%;background:#05070f;overflow:hidden;}
-  canvas{display:block;width:100vw;height:100vh;touch-action:none;}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+  /* верхняя панель наград */
+  #hud{
+    position:fixed;left:10px;top:10px;z-index:10;
+    display:flex;gap:8px;flex-wrap:wrap;max-width:70vw;
+    pointer-events:none;
+  }
+  .slot{
+    width:44px;height:44px;border-radius:12px;
+    background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.10);
+    display:flex;align-items:center;justify-content:center;
+    color:#d7f7ff;font:700 14px/1 system-ui,Segoe UI,Arial;
+    overflow:hidden;
+  }
+  .slot img{width:100%;height:100%;object-fit:contain}
+  #help{
+    position:fixed;right:12px;top:12px;z-index:10;
+    color:rgba(215,247,255,.65);font:12px/1.3 system-ui,Segoe UI,Arial;
+    background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.08);
+    padding:8px 10px;border-radius:12px;
+  }
 </style>
 </head>
 <body>
+<div id="hud"></div>
+<div id="help">WASD/стрелки — движение • Пробел — выстрел</div>
 <canvas id="c"></canvas>
 
 <script>
-/* =======================
-   1) ЧИТАЕМ НАСТРОЙКИ
-   - главный источник: ?config=JSON
-   - запасной: отдельные query-поля
-   ======================= */
-const qs = new URLSearchParams(location.search);
+(() => {
+  const cfg = JSON.parse(decodeURIComponent(new URLSearchParams(location.search).get("config") || "{}"));
 
-function readConfigJSON() {
-  const raw = qs.get("config");
-  if (!raw) return {};
-  try {
-    // editor обычно кладёт уже url-encoded
-    const decoded = decodeURIComponent(raw);
-    return JSON.parse(decoded);
-  } catch (e) {
-    try { return JSON.parse(raw); } catch (e2) { return {}; }
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const hud = document.getElementById("hud");
+
+  function resize(){
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
   }
-}
+  addEventListener("resize", resize);
+  resize();
 
-const cfgFromJSON = readConfigJSON();
+  // картинки
+  const tankImg = new Image(); tankImg.src = cfg.tankUrl || "";
+  const boxImg  = new Image(); boxImg.src  = cfg.boxUrl || "";
+  const bgImg   = new Image(); if(cfg.bgUrl) bgImg.src = cfg.bgUrl;
 
-function num(v, fallback){ const n = Number(v); return Number.isFinite(n) ? n : fallback; }
-function clamp(n, a, b){ return Math.min(b, Math.max(a, n)); }
-function pick(key, fallback){
-  // приоритет: config JSON -> query -> fallback
-  if (cfgFromJSON[key] != null && cfgFromJSON[key] !== "") return cfgFromJSON[key];
-  const q = qs.get(key);
-  if (q != null && q !== "") return q;
-  return fallback;
-}
+  // параметры
+  const boxCount = Math.max(1, Math.min(15, Number(cfg.boxCount)||7));
+  const speedBase = Math.max(1, Math.min(10, Number(cfg.speed)||4));
 
-const cfg = {
-  tankUrl:   pick("tankUrl", "https://img.genially.com/66f849d0f7b39c0016fdd814/59b10492-4c07-41bd-9331-69042a9d74b9.png"),
-  boxUrl:    pick("boxUrl",  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png"),
-  bgUrl:     pick("bgUrl",   ""),
+  const tankScale = Math.max(0.5, Math.min(5, Number(cfg.tankScale)||1));
+  const boxScale  = Math.max(0.5, Math.min(5, Number(cfg.boxScale)||1));
 
-  // ВАЖНО: именно эти имена использует редактор: boxCount, speed, tankScale, boxScale
-  boxCount:  clamp(num(pick("boxCount", 7), 7), 1, 15),
-  speed:     clamp(num(pick("speed", 4), 4), 1, 20),
+  // размеры базовые
+  const BASE_TANK_W = 90;
+  const BASE_BOX = 80;
 
-  tankScale: clamp(num(pick("tankScale", 1), 1), 0.5, 5),
-  boxScale:  clamp(num(pick("boxScale", 1), 1), 0.5, 5),
-};
+  // состояние управления
+  const keys = {};
+  addEventListener("keydown", e => { keys[e.key] = true; active = true; });
+  addEventListener("keyup",   e => { keys[e.key] = false; });
 
-/* =======================
-   2) CANVAS
-   ======================= */
-const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
+  // чтобы в Genially не “терялся фокус”
+  let active = true;
+  canvas.tabIndex = 0;
+  canvas.style.outline = "none";
+  canvas.focus();
+  canvas.addEventListener("pointerdown", () => { active = true; canvas.focus(); });
 
-function resize(){
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  canvas.width  = Math.floor(innerWidth * dpr);
-  canvas.height = Math.floor(innerHeight * dpr);
-  canvas.style.width = innerWidth + "px";
-  canvas.style.height = innerHeight + "px";
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-}
-addEventListener("resize", resize);
-resize();
+  // танк
+  const tank = {
+    x: 0,
+    y: 0,
+    w: BASE_TANK_W * tankScale,
+    h: 60,                 // пересчитаем по картинке
+    dir: "right",          // right/left/up/down
+    vx: 0,
+    vy: 0
+  };
 
-/* =======================
-   3) IMAGES
-   ======================= */
-function loadImg(url){
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img._ok = false;
-  img.onload = ()=> img._ok = true;
-  img.onerror = ()=> img._ok = false;
-  img.src = url;
-  return img;
-}
-const tankImg = loadImg(cfg.tankUrl);
-const boxImg  = loadImg(cfg.boxUrl);
-const bgImg   = cfg.bgUrl ? loadImg(cfg.bgUrl) : null;
-
-/* =======================
-   4) GAME OBJECTS
-   ======================= */
-const tankBase = { w: 120, h: 80 };
-const boxBase  = { s: 80 };
-
-const tank = {
-  x: 0,
-  y: 0,
-  dir: "right",
-  w: tankBase.w * cfg.tankScale,
-  h: tankBase.h * cfg.tankScale,
-};
-
-function placeTankStart(){
-  tank.w = tankBase.w * cfg.tankScale;
-  tank.h = tankBase.h * cfg.tankScale;
-  tank.x = 40;
-  tank.y = innerHeight - tank.h - 40; // нижний левый, не у края
-}
-placeTankStart();
-addEventListener("resize", placeTankStart);
-
-const keys = Object.create(null);
-addEventListener("keydown", e => { keys[e.key] = true; });
-addEventListener("keyup",   e => { keys[e.key] = false; });
-
-const boxes = [];
-function spawnBoxes(){
-  boxes.length = 0;
-  const size = boxBase.s * cfg.boxScale;
-
-  for(let i=0;i<cfg.boxCount;i++){
-    const x = Math.random() * Math.max(1, (innerWidth  - size));
-    const y = Math.random() * Math.max(1, (innerHeight - size));
-    boxes.push({ x, y, s: size });
+  // старт: нижний левый угол, не вплотную
+  function placeTank(){
+    tank.x = 40;
+    tank.y = canvas.height - 160;
   }
-}
-spawnBoxes();
+  placeTank();
 
-/* =======================
-   5) DRAW HELPERS
-   ======================= */
-function drawDefaultField(){
-  const g = ctx.createRadialGradient(innerWidth*0.5, innerHeight*0.45, 50, innerWidth*0.5, innerHeight*0.5, Math.max(innerWidth, innerHeight));
-  g.addColorStop(0, "rgba(20,35,70,1)");
-  g.addColorStop(1, "rgba(5,8,16,1)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0,0,innerWidth,innerHeight);
-}
+  // ящики (рандом, не выходят за поле)
+  const boxes = [];
+  const boxSize = BASE_BOX * boxScale;
 
-function drawPlaceholderBox(b){
-  ctx.save();
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = "rgba(200,200,200,0.25)";
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
-  ctx.lineWidth = 2;
-  ctx.fillRect(b.x, b.y, b.s, b.s);
-  ctx.strokeRect(b.x, b.y, b.s, b.s);
-  ctx.restore();
-}
+  function rand(min,max){ return Math.random()*(max-min)+min; }
 
-function drawPlaceholderTank(){
-  ctx.save();
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = "rgba(255,215,0,0.25)";
-  ctx.strokeStyle = "rgba(255,215,0,0.5)";
-  ctx.lineWidth = 2;
-  ctx.fillRect(tank.x, tank.y, tank.w, tank.h);
-  ctx.strokeRect(tank.x, tank.y, tank.w, tank.h);
-  ctx.restore();
-}
+  function spawnBoxes(){
+    boxes.length = 0;
+    const topPad = 70;          // под HUD
+    const edge = 20;
+    for(let i=0;i<boxCount;i++){
+      boxes.push({
+        alive:true,
+        x: rand(edge, canvas.width - boxSize - edge),
+        y: rand(topPad, canvas.height - boxSize - edge)
+      });
+    }
+  }
+  spawnBoxes();
 
-/* =======================
-   6) UPDATE
-   ======================= */
-function update(){
-  let dx = 0, dy = 0;
+  // награды
+  const rewards = Array.isArray(cfg.rewards) ? cfg.rewards.slice(0,15) : [];
+  function pushReward(i){
+    const r = rewards[i];
+    if(!r) return;
+    const slot = document.createElement("div");
+    slot.className = "slot";
 
-  const left  = keys["ArrowLeft"]  || keys["a"] || keys["A"];
-  const right = keys["ArrowRight"] || keys["d"] || keys["D"];
-  const up    = keys["ArrowUp"]    || keys["w"] || keys["W"];
-  const down  = keys["ArrowDown"]  || keys["s"] || keys["S"];
-
-  if (left)  { dx = -cfg.speed; tank.dir = "left"; }
-  if (right) { dx =  cfg.speed; tank.dir = "right"; }
-  if (up)    { dy = -cfg.speed; tank.dir = "up"; }
-  if (down)  { dy =  cfg.speed; tank.dir = "down"; }
-
-  tank.x = Math.max(0, Math.min(innerWidth  - tank.w, tank.x + dx));
-  tank.y = Math.max(0, Math.min(innerHeight - tank.h, tank.y + dy));
-}
-
-/* =======================
-   7) DRAW
-   ======================= */
-function drawTank(){
-  const cx = tank.x + tank.w/2;
-  const cy = tank.y + tank.h/2;
-
-  let angle = 0;
-  let flipX = 1;
-
-  if (tank.dir === "right") { angle = 0; flipX = 1; }
-  if (tank.dir === "left")  { angle = 0; flipX = -1; } // ЛЕВО — только зеркалим по X, не переворачиваем
-  if (tank.dir === "down")  { angle = Math.PI/2; flipX = 1; }
-  if (tank.dir === "up")    { angle = -Math.PI/2; flipX = 1; }
-
-  if (!tankImg._ok){ drawPlaceholderTank(); return; }
-
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(angle);
-  ctx.scale(flipX, 1);
-  ctx.drawImage(tankImg, -tank.w/2, -tank.h/2, tank.w, tank.h);
-  ctx.restore();
-}
-
-function draw(){
-  ctx.clearRect(0,0,innerWidth,innerHeight);
-
-  if (bgImg && bgImg._ok) ctx.drawImage(bgImg, 0, 0, innerWidth, innerHeight);
-  else drawDefaultField();
-
-  for(const b of boxes){
-    if (boxImg._ok) ctx.drawImage(boxImg, b.x, b.y, b.s, b.s);
-    else drawPlaceholderBox(b);
+    if(r.img){
+      const im = new Image();
+      im.src = r.img;
+      slot.appendChild(im);
+      im.onerror = () => { slot.textContent = (r.word||"").slice(0,2).toUpperCase(); };
+    } else {
+      slot.textContent = (r.word||"").slice(0,2).toUpperCase();
+    }
+    hud.appendChild(slot);
   }
 
-  drawTank();
-}
+  // пули
+  const bullets = [];
+  function shoot(){
+    const cx = tank.x + tank.w/2;
+    const cy = tank.y + tank.h/2;
+    const sp = 9;
 
-/* =======================
-   8) LOOP
-   ======================= */
-function loop(){
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
-loop();
+    let vx=sp, vy=0;
+    if(tank.dir==="left"){vx=-sp;vy=0;}
+    if(tank.dir==="right"){vx=sp;vy=0;}
+    if(tank.dir==="up"){vx=0;vy=-sp;}
+    if(tank.dir==="down"){vx=0;vy=sp;}
+
+    bullets.push({x:cx,y:cy,vx,vy,life:120});
+  }
+
+  // плавное движение
+  const accel = 0.35 * (speedBase/4);
+  const maxV = 4.2 * (speedBase/4);
+
+  function updateTank(){
+    if(!active) return;
+
+    let ax = 0, ay = 0;
+
+    const left  = keys["ArrowLeft"] || keys["a"] || keys["A"];
+    const right = keys["ArrowRight"]|| keys["d"] || keys["D"];
+    const up    = keys["ArrowUp"]   || keys["w"] || keys["W"];
+    const down  = keys["ArrowDown"] || keys["s"] || keys["S"];
+
+    if(left)  ax -= accel;
+    if(right) ax += accel;
+    if(up)    ay -= accel;
+    if(down)  ay += accel;
+
+    // направление (для поворота)
+    if(Math.abs(ax) > Math.abs(ay)){
+      if(ax < 0) tank.dir="left";
+      if(ax > 0) tank.dir="right";
+    }else if(Math.abs(ay) > 0){
+      if(ay < 0) tank.dir="up";
+      if(ay > 0) tank.dir="down";
+    }
+
+    tank.vx += ax;
+    tank.vy += ay;
+
+    // трение
+    tank.vx *= 0.86;
+    tank.vy *= 0.86;
+
+    // ограничение скорости
+    tank.vx = Math.max(-maxV, Math.min(maxV, tank.vx));
+    tank.vy = Math.max(-maxV, Math.min(maxV, tank.vy));
+
+    tank.x += tank.vx;
+    tank.y += tank.vy;
+
+    // границы поля (не улетает)
+    const topPad = 70;
+    tank.x = Math.max(0, Math.min(canvas.width - tank.w, tank.x));
+    tank.y = Math.max(topPad, Math.min(canvas.height - tank.h, tank.y));
+
+    // выстрел
+    if(keys[" "]){
+      keys[" "] = false;
+      shoot();
+    }
+  }
+
+  function updateBullets(){
+    for(const b of bullets){
+      b.x += b.vx;
+      b.y += b.vy;
+      b.life -= 1;
+    }
+    // столкновение с ящиками
+    for(const b of bullets){
+      if(b.life <= 0) continue;
+      for(const box of boxes){
+        if(!box.alive) continue;
+        if(b.x > box.x && b.x < box.x + boxSize && b.y > box.y && b.y < box.y + boxSize){
+          box.alive = false;
+          b.life = 0;
+
+          // награда сверху
+          pushReward(hud.children.length);
+
+          break;
+        }
+      }
+    }
+    // чистка
+    for(let i=bullets.length-1;i>=0;i--){
+      const b = bullets[i];
+      if(b.life<=0 || b.x< -50 || b.y< -50 || b.x>canvas.width+50 || b.y>canvas.height+50){
+        bullets.splice(i,1);
+      }
+    }
+  }
+
+  function drawBackground(){
+    if(cfg.bgUrl && bgImg.complete){
+      ctx.drawImage(bgImg, 0,0, canvas.width, canvas.height);
+    } else {
+      // запасной фон
+      const g = ctx.createLinearGradient(0,0,0,canvas.height);
+      g.addColorStop(0,"#0b1230");
+      g.addColorStop(1,"#050712");
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,canvas.width, canvas.height);
+    }
+  }
+
+  function drawBoxes(){
+    for(const box of boxes){
+      if(!box.alive) continue;
+      ctx.drawImage(boxImg, box.x, box.y, boxSize, boxSize);
+    }
+  }
+
+  function drawBullets(){
+    ctx.fillStyle = "rgba(255,230,120,.95)";
+    for(const b of bullets){
+      ctx.fillRect(b.x-3, b.y-2, 6, 4);
+    }
+  }
+
+  function drawTank(){
+    // пересчет высоты по пропорциям картинки
+    if(tankImg.complete && tankImg.naturalWidth){
+      const ratio = tankImg.naturalHeight / tankImg.naturalWidth;
+      tank.h = tank.w * ratio;
+    }
+
+    const cx = tank.x + tank.w/2;
+    const cy = tank.y + tank.h/2;
+
+    let angle = 0;
+    if(tank.dir==="right") angle = 0;
+    if(tank.dir==="down")  angle = Math.PI/2;
+    if(tank.dir==="left")  angle = Math.PI;
+    if(tank.dir==="up")    angle = -Math.PI/2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.drawImage(tankImg, -tank.w/2, -tank.h/2, tank.w, tank.h);
+    ctx.restore();
+  }
+
+  function loop(){
+    drawBackground();
+    drawBoxes();
+    updateTank();
+    updateBullets();
+    drawBullets();
+    if(tankImg.complete) drawTank();
+
+    requestAnimationFrame(loop);
+  }
+
+  // если меняется размер — пересоздадим ящики, чтобы точно были в поле
+  addEventListener("resize", () => {
+    placeTank();
+    spawnBoxes();
+  });
+
+  loop();
+})();
 </script>
 </body>
 </html>
