@@ -274,14 +274,17 @@
     const cy = tank.y + tank.h/2;
 
     let angle = 0;
-    if(tank.dir==="right") angle = 0;
-    if(tank.dir==="down")  angle = Math.PI/2;
-    if(tank.dir==="left")  angle = Math.PI;
-    if(tank.dir==="up")    angle = -Math.PI/2;
+    let flipX = 1;
+
+    if(tank.dir==="right"){ angle = 0; flipX = 1; }
+    if(tank.dir==="down") { angle = Math.PI/2; flipX = 1; }
+    if(tank.dir==="up")   { angle = -Math.PI/2; flipX = 1; }
+    if(tank.dir==="left") { angle = 0; flipX = -1; }  /* ✅ исправление */
 
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angle);
+    ctx.scale(flipX, 1);        /* ✅ исправление */
     ctx.drawImage(tankImg, -tank.w/2, -tank.h/2, tank.w, tank.h);
     ctx.restore();
   }
