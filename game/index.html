@@ -13,22 +13,53 @@
 <canvas id="c"></canvas>
 
 <script>
-/* ====== CONFIG from URL ====== */
+/* =======================
+   1) ЧИТАЕМ НАСТРОЙКИ
+   - главный источник: ?config=JSON
+   - запасной: отдельные query-поля
+   ======================= */
 const qs = new URLSearchParams(location.search);
 
+function readConfigJSON() {
+  const raw = qs.get("config");
+  if (!raw) return {};
+  try {
+    // editor обычно кладёт уже url-encoded
+    const decoded = decodeURIComponent(raw);
+    return JSON.parse(decoded);
+  } catch (e) {
+    try { return JSON.parse(raw); } catch (e2) { return {}; }
+  }
+}
+
+const cfgFromJSON = readConfigJSON();
+
+function num(v, fallback){ const n = Number(v); return Number.isFinite(n) ? n : fallback; }
+function clamp(n, a, b){ return Math.min(b, Math.max(a, n)); }
+function pick(key, fallback){
+  // приоритет: config JSON -> query -> fallback
+  if (cfgFromJSON[key] != null && cfgFromJSON[key] !== "") return cfgFromJSON[key];
+  const q = qs.get(key);
+  if (q != null && q !== "") return q;
+  return fallback;
+}
+
 const cfg = {
-  tankUrl: qs.get("tankUrl") || "https://img.genially.com/66f849d0f7b39c0016fdd814/59b10492-4c07-41bd-9331-69042a9d74b9.png",
-  boxUrl:  qs.get("boxUrl")  || "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png",
-  bgUrl:   qs.get("bgUrl")   || "",
+  tankUrl:   pick("tankUrl", "https://img.genially.com/66f849d0f7b39c0016fdd814/59b10492-4c07-41bd-9331-69042a9d74b9.png"),
+  boxUrl:    pick("boxUrl",  "https://img.genially.com/66f849d0f7b39c0016fdd814/9bfc40ad-c0ef-4bb9-a006-30014520bb33.png"),
+  bgUrl:     pick("bgUrl",   ""),
 
-  boxCount: Math.min(15, Math.max(1, Number(qs.get("boxCount") || 7))),
-  speed:    Math.max(1, Number(qs.get("speed") || 4)),
+  // ВАЖНО: именно эти имена использует редактор: boxCount, speed, tankScale, boxScale
+  boxCount:  clamp(num(pick("boxCount", 7), 7), 1, 15),
+  speed:     clamp(num(pick("speed", 4), 4), 1, 20),
 
-  tankScale: Math.max(0.5, Math.min(5, Number(qs.get("tankScale") || 1))),
-  boxScale:  Math.max(0.5, Math.min(5, Number(qs.get("boxScale") || 1)))
+  tankScale: clamp(num(pick("tankScale", 1), 1), 0.5, 5),
+  boxScale:  clamp(num(pick("boxScale", 1), 1), 0.5, 5),
 };
 
-/* ====== CANVAS ====== */
+/* =======================
+   2) CANVAS
+   ======================= */
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 
@@ -43,7 +74,9 @@ function resize(){
 addEventListener("resize", resize);
 resize();
 
-/* ====== IMAGES ====== */
+/* =======================
+   3) IMAGES
+   ======================= */
 function loadImg(url){
   const img = new Image();
   img.crossOrigin = "anonymous";
@@ -53,17 +86,19 @@ function loadImg(url){
   img.src = url;
   return img;
 }
-let tankImg = loadImg(cfg.tankUrl);
-let boxImg  = loadImg(cfg.boxUrl);
-let bgImg   = cfg.bgUrl ? loadImg(cfg.bgUrl) : null;
+const tankImg = loadImg(cfg.tankUrl);
+const boxImg  = loadImg(cfg.boxUrl);
+const bgImg   = cfg.bgUrl ? loadImg(cfg.bgUrl) : null;
 
-/* ====== GAME STATE ====== */
+/* =======================
+   4) GAME OBJECTS
+   ======================= */
 const tankBase = { w: 120, h: 80 };
 const boxBase  = { s: 80 };
 
 const tank = {
-  x: 40,
-  y: 0,          // выставим после resize()
+  x: 0,
+  y: 0,
   dir: "right",
   w: tankBase.w * cfg.tankScale,
   h: tankBase.h * cfg.tankScale,
@@ -73,7 +108,7 @@ function placeTankStart(){
   tank.w = tankBase.w * cfg.tankScale;
   tank.h = tankBase.h * cfg.tankScale;
   tank.x = 40;
-  tank.y = innerHeight - tank.h - 40; // нижний левый, но не у края
+  tank.y = innerHeight - tank.h - 40; // нижний левый, не у края
 }
 placeTankStart();
 addEventListener("resize", placeTankStart);
@@ -88,7 +123,6 @@ function spawnBoxes(){
   const size = boxBase.s * cfg.boxScale;
 
   for(let i=0;i<cfg.boxCount;i++){
-    // гарантируем, что ящики не “уходят” за край:
     const x = Math.random() * Math.max(1, (innerWidth  - size));
     const y = Math.random() * Math.max(1, (innerHeight - size));
     boxes.push({ x, y, s: size });
@@ -96,9 +130,10 @@ function spawnBoxes(){
 }
 spawnBoxes();
 
-/* ====== DRAW HELPERS ====== */
+/* =======================
+   5) DRAW HELPERS
+   ======================= */
 function drawDefaultField(){
-  // красивый фон по умолчанию (вместо черноты)
   const g = ctx.createRadialGradient(innerWidth*0.5, innerHeight*0.45, 50, innerWidth*0.5, innerHeight*0.5, Math.max(innerWidth, innerHeight));
   g.addColorStop(0, "rgba(20,35,70,1)");
   g.addColorStop(1, "rgba(5,8,16,1)");
@@ -128,7 +163,9 @@ function drawPlaceholderTank(){
   ctx.restore();
 }
 
-/* ====== UPDATE ====== */
+/* =======================
+   6) UPDATE
+   ======================= */
 function update(){
   let dx = 0, dy = 0;
 
@@ -146,7 +183,9 @@ function update(){
   tank.y = Math.max(0, Math.min(innerHeight - tank.h, tank.y + dy));
 }
 
-/* ====== DRAW ====== */
+/* =======================
+   7) DRAW
+   ======================= */
 function drawTank(){
   const cx = tank.x + tank.w/2;
   const cy = tank.y + tank.h/2;
@@ -155,14 +194,11 @@ function drawTank(){
   let flipX = 1;
 
   if (tank.dir === "right") { angle = 0; flipX = 1; }
-  if (tank.dir === "left")  { angle = 0; flipX = -1; }   // НЕ переворачиваем вверх ногами
+  if (tank.dir === "left")  { angle = 0; flipX = -1; } // ЛЕВО — только зеркалим по X, не переворачиваем
   if (tank.dir === "down")  { angle = Math.PI/2; flipX = 1; }
   if (tank.dir === "up")    { angle = -Math.PI/2; flipX = 1; }
 
-  if (!tankImg._ok){
-    drawPlaceholderTank();
-    return;
-  }
+  if (!tankImg._ok){ drawPlaceholderTank(); return; }
 
   ctx.save();
   ctx.translate(cx, cy);
@@ -175,24 +211,20 @@ function drawTank(){
 function draw(){
   ctx.clearRect(0,0,innerWidth,innerHeight);
 
-  // фон
-  if (bgImg && bgImg._ok) {
-    ctx.drawImage(bgImg, 0, 0, innerWidth, innerHeight);
-  } else {
-    drawDefaultField();
-  }
+  if (bgImg && bgImg._ok) ctx.drawImage(bgImg, 0, 0, innerWidth, innerHeight);
+  else drawDefaultField();
 
-  // ящики
   for(const b of boxes){
     if (boxImg._ok) ctx.drawImage(boxImg, b.x, b.y, b.s, b.s);
     else drawPlaceholderBox(b);
   }
 
-  // танк
   drawTank();
 }
 
-/* ====== LOOP ====== */
+/* =======================
+   8) LOOP
+   ======================= */
 function loop(){
   update();
   draw();
